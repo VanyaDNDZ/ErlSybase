@@ -1,0 +1,9 @@
+{application, sybdrv,
+ [
+  {description, "Simple NIF to sybase"},
+  {vsn, "1.0.0"},
+  {applications, [
+                  kernel,
+                  stdlib
+                 ]}
+ ]}.
