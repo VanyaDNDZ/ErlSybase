@@ -38,8 +38,6 @@ static ERL_NIF_TERM connect(ErlNifEnv* env, int argc,
 
 static ERL_NIF_TERM execute(ErlNifEnv* env, int argc,
 		const ERL_NIF_TERM argv[]) {
-	SysLogger::open("sybdriver");
-	SysLogger::info("start execute");
 	SybStatement* stmt;
 	sybdrv_con* sybdrv_con_handle;
 	char* sql = NULL;
@@ -47,6 +45,8 @@ static ERL_NIF_TERM execute(ErlNifEnv* env, int argc,
 	ERL_NIF_TERM head;
 	ERL_NIF_TERM tail;
 	ERL_NIF_TERM list;
+	ERL_NIF_TERM result;
+	CS_RETCODE retcode;
 	if (!enif_get_resource(env, argv[0], sybdrv_crsr,
 			(void**) &sybdrv_con_handle)) {
 		return enif_make_tuple2(env, enif_make_atom(env, "error"),
@@ -62,13 +62,14 @@ static ERL_NIF_TERM execute(ErlNifEnv* env, int argc,
 				enif_make_string(env, "no sql found", ERL_NIF_LATIN1));
 	}
 
-	if (enif_is_empty_list(env, argv[2])) {
-
+	if (enif_is_empty_list(env, argv[2])) {	
+		SysLogger::info("retest");
 		stmt = sybdrv_con_handle->connection->create_statement(sql);
-		if (stmt->execute_cmd()) {
-			return enif_make_tuple2(env, enif_make_atom(env, "ok"),
-					enif_make_list(env, 0));
+		retcode=stmt->execute_sql(&result);
+		if (retcode) {
+			return enif_make_tuple2(env, enif_make_atom(env, "ok"),result);
 		} else {
+			SysLogger::info("could not execute cmd");
 			return enif_make_tuple2(env, enif_make_atom(env, "error"),
 					enif_make_string(env, "could not execute cmd",
 							ERL_NIF_LATIN1));
@@ -116,7 +117,7 @@ static ERL_NIF_TERM execute(ErlNifEnv* env, int argc,
 
 		list = tail;
 	}
-	ERL_NIF_TERM result;
+	
 	stmt->execute_sql(&result);
 
 	return result;
@@ -147,6 +148,7 @@ static int load_init(ErlNifEnv* env, void** priv_data, ERL_NIF_TERM load_info) {
 
 static ErlNifFunc nif_funcs[] = { { "connect", 3, connect }, { "execute", 3,
 		execute } };
+
 
 ERL_NIF_INIT(sybdrv, nif_funcs, &load_init, NULL, NULL, NULL);
 

@@ -13,6 +13,8 @@
 #include "erl_nif.h"
 #include "SybUtils.h"
 
+
+
 /** @brief Sybase prepare statement class.
  */
 class SybStatement {
@@ -346,8 +348,7 @@ public:
             int param_type;
 
             param_type = get_param_type(index);
-            SysLogger::info("set parama %i",param_type);
-            switch(param_type) {
+            switch((int)param_type) {
                 /** Bit types */
                 case CS_BIT_TYPE:
                     retcode = set_bit(index, data);
@@ -392,6 +393,8 @@ public:
                 case CS_MONEY4_TYPE:
                     retcode = set_money4(index, (double)data);
                     break;
+                case CS_CHAR_TYPE:
+                    retcode = set_char(index,(char*)&data);
 
                 default:
                     retcode = false;
@@ -420,8 +423,10 @@ private:
     void reset();
 
     CS_RETCODE handle_describe_result();
+    CS_RETCODE handle_describe_result(CS_COMMAND *cmd);
 
     CS_RETCODE handle_command_result();
+    CS_RETCODE handle_command_result(CS_COMMAND *cmd);
 
     CS_RETCODE handle_sql_result(ERL_NIF_TERM* result);
 
@@ -434,6 +439,7 @@ private:
     CS_RETCODE encode_update_result(ERL_NIF_TERM* result, CS_INT row_count);
 
     CS_RETCODE encode_column_data(ERL_NIF_TERM* result, COLUMN_DATA *column);
+    CS_RETCODE encode_column_data(ERL_NIF_TERM* result, int index, COLUMN_DATA *column);
 
     CS_VOID* alloc_column_value(CS_DATAFMT *dfmt);
 
@@ -464,6 +470,8 @@ private:
     CS_RETCODE encode_bit(ERL_NIF_TERM* x, CS_DATAFMT* dfmt, CS_BIT* v);
 
     CS_RETCODE encode_char(ERL_NIF_TERM* x, CS_DATAFMT* dfmt, CS_CHAR* v, CS_INT len);
+
+    ERL_NIF_TERM encode_char(CS_DATAFMT* dfmt, CS_CHAR* v, CS_INT len);
 
     CS_RETCODE encode_longchar(ERL_NIF_TERM* x, CS_DATAFMT* dfmt, CS_LONGCHAR* v, CS_INT len);
 

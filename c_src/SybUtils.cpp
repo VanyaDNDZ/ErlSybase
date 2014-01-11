@@ -5,7 +5,6 @@
 CS_RETCODE clientmsg_cb(CS_CONTEXT *context,
         CS_CONNECTION *connection, CS_CLIENTMSG *errmsg)
 {
-    std::cout<<errmsg->msgstring;
     SysLogger::info(errmsg->msgstring);
     return CS_SUCCEED;
 }
@@ -13,7 +12,6 @@ CS_RETCODE clientmsg_cb(CS_CONTEXT *context,
 CS_RETCODE servermsg_cb(CS_CONTEXT *context,
         CS_CONNECTION *connection, CS_SERVERMSG *srvmsg)
 {
-    std::cout<<srvmsg->text;
     SysLogger::info(srvmsg->text);
     return CS_SUCCEED;
 }

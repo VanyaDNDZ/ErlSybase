@@ -1,5 +1,6 @@
 #include "SybStatement.h"
 
+
 SysLogger* SybStatement::log = NULL;
 
 SybStatement::SybStatement(CS_CONNECTION* conn, ErlNifEnv* env) :
@@ -52,9 +53,6 @@ bool SybStatement::execute_cmd() {
 }
 
 bool SybStatement::execute_cmd(const char* sql) {
-	SybStatement::log->open("syblogger");
-	SybStatement::log->info("execute command");
-	SybStatement::log->info(sql);
 	/** execute_cmd does not support prepare statement */
 	if (is_prepare_ || cmd_ == NULL) {
 		return false;
@@ -71,7 +69,7 @@ bool SybStatement::execute_cmd(const char* sql) {
 	}
 
 	/** Handle the result, only return success or failure */
-	if (handle_command_result() != CS_SUCCEED) {
+	if (handle_command_result(cmd_) != CS_SUCCEED) {
 		return false;
 	}
 
@@ -87,6 +85,7 @@ CS_RETCODE SybStatement::handle_command_result() {
 	/** Examine the results coming back. If any errors are seen, the query
 	 * result code (which we will return from this function) will be set to FAIL.
 	 */
+
 	while ((retcode = ct_results(cmd_, &restype)) == CS_SUCCEED) {
 
 		switch (restype) {
@@ -99,7 +98,6 @@ CS_RETCODE SybStatement::handle_command_result() {
 			query_code = CS_FAIL;
 			break;
 		}
-
 		if (query_code == CS_FAIL) {
 
 			/** Terminate results processing and break out of the results loop */
@@ -110,7 +108,61 @@ CS_RETCODE SybStatement::handle_command_result() {
 		}
 	}
 
-	if (retcode != CS_END_RESULTS || query_code != CS_SUCCEED) {
+	if ((int)retcode != (int)CS_END_RESULTS || (int)query_code != (int)CS_SUCCEED) {
+		return CS_FAIL;
+	}
+
+	return CS_SUCCEED;
+}
+
+
+CS_RETCODE SybStatement::handle_command_result(CS_COMMAND *cmd) {
+	
+	CS_SMALLINT msg_id;
+	CS_RETCODE retcode;
+	CS_INT restype;
+	CS_RETCODE query_code = CS_SUCCEED;
+	row_count_ = 0;
+
+	/** Examine the results coming back. If any errors are seen, the query
+	 * result code (which we will return from this function) will be set to FAIL.
+	 */
+
+	while ((retcode = ct_results(cmd, &restype)) == CS_SUCCEED) {
+		switch ((int)restype) {
+		case CS_CMD_SUCCEED:
+			break;
+		case CS_CMD_DONE:
+			break;
+		case CS_MSG_RESULT:
+			/*
+			**  Retrieve and print the message ID.
+			*/
+			retcode = ct_res_info(cmd, CS_MSGTYPE,
+					(CS_VOID *)&msg_id, CS_UNUSED, NULL);
+			if (retcode != CS_SUCCEED)
+			{
+				SysLogger::error("error Retrieve message from handle_command_result");
+				query_code=CS_FAIL;
+
+			}
+			break;
+
+		default:
+			/** Unexpected result type. */
+			query_code = CS_FAIL;
+			break;
+		}
+		if (query_code == CS_FAIL) {
+
+			/** Terminate results processing and break out of the results loop */
+			if (ct_cancel(NULL, cmd, CS_CANCEL_ALL) != CS_SUCCEED) {
+				SysLogger::debug("handle_command_result: ct_cancel() failed");
+			}
+			break;
+		}
+	}
+	if ((int)retcode != (int)CS_END_RESULTS || (int)query_code != (int)CS_SUCCEED) {
 		return CS_FAIL;
 	}
 
@@ -138,10 +190,10 @@ bool SybStatement::execute_sql(ERL_NIF_TERM* result) {
 
 		/** Handle the result and encode to ei_x_buff */
 		if (handle_sql_result(result) != CS_SUCCEED) {
-			return false;
+			return CS_FAIL;
 		}
 		executed_ = false;
-		return true;
+		return CS_SUCCEED;
 	} else {
 		return execute_sql(result, sql_);
 	}
@@ -180,6 +232,7 @@ bool SybStatement::execute_sql(ERL_NIF_TERM* result, const char* sql) {
 
 	/** Handle the result and encode to ei_x_buff */
 	if (handle_sql_result(result) != CS_SUCCEED) {
+		SysLogger::error("execute_sql: handle_sql_result failed");
 		return false;
 	}
 
@@ -191,6 +244,7 @@ bool SybStatement::prepare_init(const char* id) {
 }
 
 bool SybStatement::prepare_init(const char* id, const char* sql) {
+	CS_RETCODE retcode;
 	SysLogger::debug("prepare id:%s sql:%s", id, sql);
 	if (cmd_ == NULL) {
 		return false;
@@ -217,10 +271,11 @@ bool SybStatement::prepare_init(const char* id, const char* sql) {
 	}
 
 
-	if (handle_command_result() != CS_SUCCEED) {
+	if ((retcode=handle_command_result(cmd_)) != CS_SUCCEED) {
+		SysLogger::debug("prepare_init:handle_command_result error");
 		return false;
 	}
-	SysLogger::info("start dicsrabesa121");
+	
 	if (ct_dynamic(cmd_, CS_DESCRIBE_INPUT, (CS_CHAR*) id, CS_NULLTERM, NULL,
 			CS_UNUSED) != CS_SUCCEED) {
 		SysLogger::debug("prepare_init: ct_dynamic(CS_DESCRIBE_INPUT) failed");
@@ -231,8 +286,8 @@ bool SybStatement::prepare_init(const char* id, const char* sql) {
 		SysLogger::debug("prepare_init: ct_send() failed");
 		return false;
 	}
-
-	if (handle_describe_result() != CS_SUCCEED) {
+	
+	if (handle_describe_result(cmd_) != CS_SUCCEED) {
 		return false;
 	}
 
@@ -283,6 +338,51 @@ CS_RETCODE SybStatement::handle_describe_result() {
 	return CS_SUCCEED;
 }
 
+
+CS_RETCODE SybStatement::handle_describe_result(CS_COMMAND *cmd) {
+	CS_RETCODE retcode;
+	CS_INT restype;
+	CS_RETCODE query_code = CS_SUCCEED;
+
+	/** Examine the results coming back. If any errors are seen, the query
+	 * result code (which we will return from this function) will be set to FAIL.
+	 */
+	while ((retcode = ct_results(cmd, &restype)) == CS_SUCCEED) {
+
+		switch ((int)restype) {
+		case CS_DESCRIBE_RESULT:
+			if (process_describe_reslut() != CS_SUCCEED) {
+				return CS_FAIL;
+			}
+			break;
+
+		case CS_CMD_SUCCEED:
+		case CS_CMD_DONE:
+			break;
+
+		default:
+			/** Unexpected result type. */
+			query_code = CS_FAIL;
+			break;
+		}
+
+		if (query_code == CS_FAIL) {
+
+			/** Terminate results processing and break out of the results loop */
+			if (ct_cancel(NULL, cmd, CS_CANCEL_ALL) != CS_SUCCEED) {
+				SysLogger::error("handle_describe_result: ct_cancel() failed");
+			}
+			break;
+		}
+	}
+
+	if ((int)retcode != (int)CS_END_RESULTS || (int)query_code != (int)CS_SUCCEED) {
+		return CS_FAIL;
+	}
+
+	return CS_SUCCEED;
+}
+
 CS_RETCODE SybStatement::handle_sql_result(ERL_NIF_TERM* result) {
 	CS_RETCODE retcode;
 	CS_INT restype;
@@ -294,7 +394,7 @@ CS_RETCODE SybStatement::handle_sql_result(ERL_NIF_TERM* result) {
 	 * result code (which we will return from this function) will be set to FAIL.
 	 */
 	while ((retcode = ct_results(cmd_, &restype)) == CS_SUCCEED) {
-		switch (restype) {
+		switch ((int)restype) {
 		case CS_COMPUTE_RESULT:
 		case CS_CURSOR_RESULT:
 		case CS_PARAM_RESULT:
@@ -302,7 +402,7 @@ CS_RETCODE SybStatement::handle_sql_result(ERL_NIF_TERM* result) {
 		case CS_ROW_RESULT:
 			is_query = 1;
 			if (process_row_result(result) != CS_SUCCEED) {
-				return false;
+				return CS_FAIL;
 			}
 			break;
 
@@ -329,7 +429,7 @@ CS_RETCODE SybStatement::handle_sql_result(ERL_NIF_TERM* result) {
 		}
 	}
 
-	if (retcode != CS_END_RESULTS || query_code != CS_SUCCEED) {
+	if ((int)retcode != (int)CS_END_RESULTS || (int)query_code != (int)CS_SUCCEED) {
 		return CS_FAIL;
 	}
 
@@ -361,8 +461,7 @@ CS_RETCODE SybStatement::process_row_result(ERL_NIF_TERM* result) {
 	}
 
 	/** Allocate memory for the data element to process. */
-	COLUMN_DATA* columns = (COLUMN_DATA *) malloc(
-			column_count * sizeof(COLUMN_DATA));
+	COLUMN_DATA* columns = new COLUMN_DATA[column_count];
 	if (columns == NULL) {
 		SysLogger::error("process_row_result: allocate COLUMN_DATA failed");
 		return cancel_current();
@@ -377,27 +476,29 @@ CS_RETCODE SybStatement::process_row_result(ERL_NIF_TERM* result) {
 		CS_DATAFMT *dfmt = &columns[i].dfmt;
 
 		memset(dfmt, 0, sizeof(CS_DATAFMT));
-		if (ct_describe(cmd_, i + 1, dfmt) != CS_SUCCEED) {
+		if (ct_describe(cmd_, (i + 1), dfmt) != CS_SUCCEED) {
 			SysLogger::error("process_row_result: ct_describe failed");
 			free_column_data(columns, i);
-			return cancel_current();
+			cancel_current();
+			return CS_FAIL;
 		}
-
 		columns[i].value = alloc_column_value(dfmt);
 		if (columns[i].value == NULL) {
 			SysLogger::error("process_row_result: alloc_column_value() failed");
 			free_column_data(columns, i);
-			return cancel_current();
+			cancel_current();
+			return CS_FAIL;
 		}
 
 		if (ct_bind(cmd_, i + 1, dfmt, (CS_VOID *) columns[i].value,
 				&columns[i].valuelen, &columns[i].indicator) != CS_SUCCEED) {
 			SysLogger::error("process_row_result: ct_bind() failed");
 			free_column_data(columns, i);
-			return cancel_current();
+			cancel_current();
+			return CS_FAIL;
 		}
 	}
-
+	
 	retcode = encode_query_result(result, columns, column_count);
 	free_column_data(columns, column_count);
 
@@ -405,11 +506,6 @@ CS_RETCODE SybStatement::process_row_result(ERL_NIF_TERM* result) {
 }
 
 bool SybStatement::set_param(CS_DATAFMT* dfmt, CS_VOID* data, CS_INT len) {
-	if (executed_) {
-		SysLogger::info("executed");
-	} else {
-		SysLogger::info("not executed");
-	}
 	if (!executed_) {
 		if (ct_dynamic(cmd_, CS_EXECUTE, id_, CS_NULLTERM, NULL,
 				CS_UNUSED) != CS_SUCCEED) {
@@ -447,28 +543,35 @@ CS_RETCODE SybStatement::encode_query_result(ERL_NIF_TERM* result,
 		row_count = row_count + rows_read;
 
 		/** Check if we hit a recoverable error. */
-		if (retcode == CS_ROW_FAIL) {
+		if ((int)retcode == (int)CS_ROW_FAIL) {
 			SysLogger::error("encode_query_result: Error on row %d", row_count);
 			result = (ERL_NIF_TERM*) (enif_make_atom(env_, "error"));
 		} else {
-			ERL_NIF_TERM row = enif_make_list(env_, 0);
+			
+			ERL_NIF_TERM* row = new ERL_NIF_TERM[column_count];
+			//enif_make_list(env_, 0);
 			/**
 			 * We have a row. Loop through the columns encode the
 			 * column values.
 			 */
+
 			for (CS_INT i = 0; i < column_count; ++i) {
-				if (encode_column_data(&row, columns + i) != CS_SUCCEED) {
+				
+				/*if (encode_column_data(&row, columns + i) != CS_SUCCEED) {
 					return CS_FAIL;
-				}
+				}*/
+				encode_column_data(row,(int) i ,columns+i);
 			}
-			enif_make_list_cell(env_, rows, row);
+			rows = enif_make_list_cell(env_,  enif_make_list_from_array(env_,row,column_count),rows);
+			//free(row);
 		}
 	}
 
 	ERL_NIF_TERM out = enif_make_tuple2(env_, enif_make_atom(env_, "ok"), rows);
+	
 	result = &out;
 
-	switch (retcode) {
+	switch ((int)retcode) {
 	case CS_END_DATA:
 		retcode = CS_SUCCEED;
 		break;
@@ -492,8 +595,8 @@ CS_RETCODE SybStatement::encode_binary(ERL_NIF_TERM* x, CS_DATAFMT* dfmt,
 	ErlNifBinary* bin = NULL;
 	enif_alloc_binary(len, bin);
 	bin->data = (unsigned char*) v;
-	ERL_NIF_TERM new_x = enif_make_list_cell(env_, *x,
-			enif_make_binary(env_, bin));
+	ERL_NIF_TERM new_x = enif_make_list_cell(env_,
+			enif_make_binary(env_, bin), *x);
 	if (new_x) {
 		x = &new_x;
 		return CS_SUCCEED;
@@ -507,8 +610,8 @@ CS_RETCODE SybStatement::encode_longbinary(ERL_NIF_TERM* x, CS_DATAFMT* dfmt,
 	ErlNifBinary* bin = NULL;
 	enif_alloc_binary((long) len, bin);
 	bin->data = (unsigned char*) v;
-	ERL_NIF_TERM new_x = enif_make_list_cell(env_, *x,
-			enif_make_binary(env_, bin));
+	ERL_NIF_TERM new_x = enif_make_list_cell(env_,
+			enif_make_binary(env_, bin), *x);
 	if (new_x) {
 		x = &new_x;
 		return CS_SUCCEED;
@@ -522,8 +625,8 @@ CS_RETCODE SybStatement::encode_varbinary(ERL_NIF_TERM* x, CS_DATAFMT* dfmt,
 	ErlNifBinary* bin = NULL;
 	enif_alloc_binary((long) v->len, bin);
 	bin->data = (unsigned char*) v->array;
-	ERL_NIF_TERM new_x = enif_make_list_cell(env_, *x,
-			enif_make_binary(env_, bin));
+	ERL_NIF_TERM new_x = enif_make_list_cell(env_,
+			enif_make_binary(env_, bin), *x);
 	if (new_x) {
 		x = &new_x;
 		return CS_SUCCEED;
@@ -534,8 +637,8 @@ CS_RETCODE SybStatement::encode_varbinary(ERL_NIF_TERM* x, CS_DATAFMT* dfmt,
 
 CS_RETCODE SybStatement::encode_bit(ERL_NIF_TERM* x, CS_DATAFMT* dfmt,
 		CS_BIT* v) {
-	ERL_NIF_TERM new_x = enif_make_list_cell(env_, *x,
-			enif_make_string(env_, (char*) v, ERL_NIF_LATIN1));
+	ERL_NIF_TERM new_x = enif_make_list_cell(env_,
+			enif_make_string(env_, (char*) v, ERL_NIF_LATIN1), *x);
 	if (new_x) {
 		x = &new_x;
 		return CS_SUCCEED;
@@ -546,8 +649,8 @@ CS_RETCODE SybStatement::encode_bit(ERL_NIF_TERM* x, CS_DATAFMT* dfmt,
 
 CS_RETCODE SybStatement::encode_char(ERL_NIF_TERM* x, CS_DATAFMT* dfmt,
 		CS_CHAR* v, CS_INT len) {
-	ERL_NIF_TERM new_x = enif_make_list_cell(env_, *x,
-			enif_make_string(env_, (const char*) v, ERL_NIF_LATIN1));
+	ERL_NIF_TERM new_x = enif_make_list_cell(env_,
+		enif_make_string(env_, (const char*) v, ERL_NIF_LATIN1), *x);
 	if (new_x) {
 		x = &new_x;
 		return CS_SUCCEED;
@@ -558,8 +661,8 @@ CS_RETCODE SybStatement::encode_char(ERL_NIF_TERM* x, CS_DATAFMT* dfmt,
 
 CS_RETCODE SybStatement::encode_longchar(ERL_NIF_TERM* x, CS_DATAFMT* dfmt,
 		CS_LONGCHAR* v, CS_INT len) {
-	ERL_NIF_TERM new_x = enif_make_list_cell(env_, *x,
-			enif_make_string(env_, (const char*) v, ERL_NIF_LATIN1));
+	ERL_NIF_TERM new_x = enif_make_list_cell(env_,
+			enif_make_string(env_, (const char*) v, ERL_NIF_LATIN1), *x);
 	if (new_x) {
 		x = &new_x;
 		return CS_SUCCEED;
@@ -570,8 +673,8 @@ CS_RETCODE SybStatement::encode_longchar(ERL_NIF_TERM* x, CS_DATAFMT* dfmt,
 
 CS_RETCODE SybStatement::encode_varchar(ERL_NIF_TERM* x, CS_DATAFMT* dfmt,
 		CS_VARCHAR* v) {
-	ERL_NIF_TERM new_x = enif_make_list_cell(env_, *x,
-			enif_make_string(env_, (const char*) v->str, ERL_NIF_LATIN1));
+	ERL_NIF_TERM new_x = enif_make_list_cell(env_,
+			enif_make_string(env_, (const char*) v->str, ERL_NIF_LATIN1), *x);
 	if (new_x) {
 		x = &new_x;
 		return CS_SUCCEED;
@@ -601,8 +704,8 @@ CS_RETCODE SybStatement::encode_unichar(ERL_NIF_TERM* x, CS_DATAFMT* dfmt,
 
 CS_RETCODE SybStatement::encode_xml(ERL_NIF_TERM* x, CS_DATAFMT* dfmt,
 		CS_XML* v, CS_INT len) {
-	ERL_NIF_TERM new_x = enif_make_list_cell(env_, *x,
-			enif_make_string(env_, (const char*) v, ERL_NIF_LATIN1));
+	ERL_NIF_TERM new_x = enif_make_list_cell(env_,
+			enif_make_string(env_, (const char*) v, ERL_NIF_LATIN1), *x);
 	if (new_x) {
 		x = &new_x;
 		return CS_SUCCEED;
@@ -630,7 +733,7 @@ CS_RETCODE SybStatement::encode_date(ERL_NIF_TERM* x, CS_DATAFMT* dfmt,
 			enif_make_tuple3(env_, enif_make_long(env_, daterec.dateyear),
 					enif_make_long(env_, daterec.datemonth + 1),
 					enif_make_long(env_, daterec.datedmonth)));
-	ERL_NIF_TERM new_x = enif_make_list_cell(env_, *x, dt);
+	ERL_NIF_TERM new_x = enif_make_list_cell(env_, dt, *x);
 	if (new_x) {
 		x = &new_x;
 		return CS_SUCCEED;
@@ -659,7 +762,7 @@ CS_RETCODE SybStatement::encode_time(ERL_NIF_TERM* x, CS_DATAFMT* dfmt,
 					enif_make_long(env_, daterec.dateminute),
 					enif_make_long(env_, daterec.datesecond),
 					enif_make_long(env_, daterec.datemsecond)));
-	ERL_NIF_TERM new_x = enif_make_list_cell(env_, *x, dt);
+	ERL_NIF_TERM new_x = enif_make_list_cell(env_, dt, *x);
 	if (new_x) {
 		x = &new_x;
 		return CS_SUCCEED;
@@ -694,7 +797,7 @@ CS_RETCODE SybStatement::encode_datetime(ERL_NIF_TERM* x, CS_DATAFMT* dfmt,
 							enif_make_long(env_, daterec.dateminute),
 							enif_make_long(env_, daterec.datesecond),
 							enif_make_long(env_, daterec.datemsecond))));
-	ERL_NIF_TERM new_x = enif_make_list_cell(env_, *x, dt);
+	ERL_NIF_TERM new_x = enif_make_list_cell(env_, dt, *x);
 	if (new_x) {
 		x = &new_x;
 		return CS_SUCCEED;
@@ -727,7 +830,7 @@ CS_RETCODE SybStatement::encode_datetime4(ERL_NIF_TERM* x, CS_DATAFMT* dfmt,
 					enif_make_tuple2(env_,
 							enif_make_long(env_, daterec.datehour),
 							enif_make_long(env_, daterec.dateminute))));
-	ERL_NIF_TERM new_x = enif_make_list_cell(env_, *x, dt);
+	ERL_NIF_TERM new_x = enif_make_list_cell(env_, dt, *x);
 	if (new_x) {
 		x = &new_x;
 		return CS_SUCCEED;
@@ -764,7 +867,7 @@ CS_RETCODE SybStatement::encode_bigdatetime(ERL_NIF_TERM* x, CS_DATAFMT* dfmt,
 							enif_make_long(env_, daterec.datesecond),
 							enif_make_long(env_, daterec.datesecfrac / 1000),
 							enif_make_long(env_, daterec.datesecfrac % 1000))));
-	ERL_NIF_TERM new_x = enif_make_list_cell(env_, *x, dt);
+	ERL_NIF_TERM new_x = enif_make_list_cell(env_, dt, *x);
 	if (new_x) {
 		x = &new_x;
 		return CS_SUCCEED;
@@ -794,7 +897,7 @@ CS_RETCODE SybStatement::encode_bigtime(ERL_NIF_TERM* x, CS_DATAFMT* dfmt,
 					enif_make_long(env_, daterec.datesecond),
 					enif_make_long(env_, daterec.datesecfrac / 1000),
 					enif_make_long(env_, daterec.datesecfrac % 1000)));
-	ERL_NIF_TERM new_x = enif_make_list_cell(env_, *x, dt);
+	ERL_NIF_TERM new_x = enif_make_list_cell(env_, dt, *x);
 	if (new_x) {
 		x = &new_x;
 		return CS_SUCCEED;
@@ -805,8 +908,8 @@ CS_RETCODE SybStatement::encode_bigtime(ERL_NIF_TERM* x, CS_DATAFMT* dfmt,
 
 CS_RETCODE SybStatement::encode_tinyint(ERL_NIF_TERM* x, CS_DATAFMT* dfmt,
 		CS_TINYINT* v) {
-	ERL_NIF_TERM new_x = enif_make_list_cell(env_, *x,
-			enif_make_string(env_, (const char*) v, ERL_NIF_LATIN1));
+	ERL_NIF_TERM new_x = enif_make_list_cell(env_,
+			enif_make_string(env_, (const char*) v, ERL_NIF_LATIN1), *x);
 	if (new_x) {
 		x = &new_x;
 		return CS_SUCCEED;
@@ -817,8 +920,8 @@ CS_RETCODE SybStatement::encode_tinyint(ERL_NIF_TERM* x, CS_DATAFMT* dfmt,
 
 CS_RETCODE SybStatement::encode_smallint(ERL_NIF_TERM* x, CS_DATAFMT* dfmt,
 		CS_SMALLINT* v) {
-	ERL_NIF_TERM new_x = enif_make_list_cell(env_, *x,
-			enif_make_long(env_, (long) *v));
+	ERL_NIF_TERM new_x = enif_make_list_cell(env_,
+			enif_make_long(env_, (long) *v), *x);
 	if (new_x) {
 		x = &new_x;
 		return CS_SUCCEED;
@@ -829,8 +932,8 @@ CS_RETCODE SybStatement::encode_smallint(ERL_NIF_TERM* x, CS_DATAFMT* dfmt,
 
 CS_RETCODE SybStatement::encode_int(ERL_NIF_TERM* x, CS_DATAFMT* dfmt,
 		CS_INT* v) {
-	ERL_NIF_TERM new_x = enif_make_list_cell(env_, *x,
-			enif_make_long(env_, (long) *v));
+	ERL_NIF_TERM new_x = enif_make_list_cell(env_,
+			enif_make_long(env_, (long) *v), *x);
 	if (new_x) {
 		x = &new_x;
 		return CS_SUCCEED;
@@ -841,8 +944,8 @@ CS_RETCODE SybStatement::encode_int(ERL_NIF_TERM* x, CS_DATAFMT* dfmt,
 
 CS_RETCODE SybStatement::encode_bigint(ERL_NIF_TERM* x, CS_DATAFMT* dfmt,
 		CS_BIGINT* v) {
-	ERL_NIF_TERM new_x = enif_make_list_cell(env_, *x,
-			enif_make_long(env_, (long) *v));
+	ERL_NIF_TERM new_x = enif_make_list_cell(env_,
+			enif_make_long(env_, (long) *v), *x);
 	if (new_x) {
 		x = &new_x;
 		return CS_SUCCEED;
@@ -853,8 +956,8 @@ CS_RETCODE SybStatement::encode_bigint(ERL_NIF_TERM* x, CS_DATAFMT* dfmt,
 
 CS_RETCODE SybStatement::encode_usmallint(ERL_NIF_TERM* x, CS_DATAFMT* dfmt,
 		CS_USMALLINT* v) {
-	ERL_NIF_TERM new_x = enif_make_list_cell(env_, *x,
-			enif_make_ulong(env_, (unsigned long) *v));
+	ERL_NIF_TERM new_x = enif_make_list_cell(env_,
+			enif_make_ulong(env_, (unsigned long) *v), *x);
 	if (new_x) {
 		x = &new_x;
 		return CS_SUCCEED;
@@ -865,8 +968,8 @@ CS_RETCODE SybStatement::encode_usmallint(ERL_NIF_TERM* x, CS_DATAFMT* dfmt,
 
 CS_RETCODE SybStatement::encode_uint(ERL_NIF_TERM* x, CS_DATAFMT* dfmt,
 		CS_UINT* v) {
-	ERL_NIF_TERM new_x = enif_make_list_cell(env_, *x,
-			enif_make_ulong(env_, (unsigned long) *v));
+	ERL_NIF_TERM new_x = enif_make_list_cell(env_,
+			enif_make_ulong(env_, (unsigned long) *v), *x);
 	if (new_x) {
 		x = &new_x;
 		return CS_SUCCEED;
@@ -877,8 +980,8 @@ CS_RETCODE SybStatement::encode_uint(ERL_NIF_TERM* x, CS_DATAFMT* dfmt,
 
 CS_RETCODE SybStatement::encode_ubigint(ERL_NIF_TERM* x, CS_DATAFMT* dfmt,
 		CS_UBIGINT* v) {
-	ERL_NIF_TERM new_x = enif_make_list_cell(env_, *x,
-			enif_make_ulong(env_, (unsigned long) *v));
+	ERL_NIF_TERM new_x = enif_make_list_cell(env_,
+			enif_make_ulong(env_, (unsigned long) *v), *x);
 	if (new_x) {
 		x = &new_x;
 		return CS_SUCCEED;
@@ -909,10 +1012,10 @@ CS_RETCODE SybStatement::encode_decimal(ERL_NIF_TERM* x, CS_DATAFMT* dfmt,
 		return CS_FAIL;
 	}
 
-	ERL_NIF_TERM new_x = enif_make_list_cell(env_, *x,
+	ERL_NIF_TERM new_x = enif_make_list_cell(env_,
 			enif_make_tuple2(env_, enif_make_atom(env_, "number"),
 					enif_make_string(env_, (const char*) dest,
-							ERL_NIF_LATIN1)));
+							ERL_NIF_LATIN1)), *x);
 	if (new_x) {
 		x = &new_x;
 		return CS_SUCCEED;
@@ -943,10 +1046,10 @@ CS_RETCODE SybStatement::encode_numeric(ERL_NIF_TERM* x, CS_DATAFMT* dfmt,
 		return CS_FAIL;
 	}
 
-	ERL_NIF_TERM new_x = enif_make_list_cell(env_, *x,
+	ERL_NIF_TERM new_x = enif_make_list_cell(env_,
 			enif_make_tuple2(env_, enif_make_atom(env_, "number"),
 					enif_make_string(env_, (const char*) dest,
-							ERL_NIF_LATIN1)));
+							ERL_NIF_LATIN1)), *x);
 	if (new_x) {
 		x = &new_x;
 		return CS_SUCCEED;
@@ -957,8 +1060,8 @@ CS_RETCODE SybStatement::encode_numeric(ERL_NIF_TERM* x, CS_DATAFMT* dfmt,
 
 CS_RETCODE SybStatement::encode_float(ERL_NIF_TERM* x, CS_DATAFMT* dfmt,
 		CS_FLOAT* v) {
-	ERL_NIF_TERM new_x = enif_make_list_cell(env_, *x,
-			enif_make_double(env_, *v));
+	ERL_NIF_TERM new_x = enif_make_list_cell(env_,
+			enif_make_double(env_, *v), *x);
 	if (new_x) {
 		x = &new_x;
 		return CS_SUCCEED;
@@ -969,8 +1072,8 @@ CS_RETCODE SybStatement::encode_float(ERL_NIF_TERM* x, CS_DATAFMT* dfmt,
 
 CS_RETCODE SybStatement::encode_real(ERL_NIF_TERM* x, CS_DATAFMT* dfmt,
 		CS_REAL* v) {
-	ERL_NIF_TERM new_x = enif_make_list_cell(env_, *x,
-			enif_make_double(env_, *v));
+	ERL_NIF_TERM new_x = enif_make_list_cell(env_,
+			enif_make_double(env_, *v), *x);
 	if (new_x) {
 		x = &new_x;
 		return CS_SUCCEED;
@@ -1001,9 +1104,9 @@ CS_RETCODE SybStatement::encode_money(ERL_NIF_TERM* x, CS_DATAFMT* dfmt,
 		return CS_FAIL;
 	}
 
-	ERL_NIF_TERM new_x = enif_make_list_cell(env_, *x,
+	ERL_NIF_TERM new_x = enif_make_list_cell(env_,
 			enif_make_tuple2(env_, enif_make_atom(env_, "number"),
-					enif_make_string(env_, (char*) dest, ERL_NIF_LATIN1)));
+					enif_make_string(env_, (char*) dest, ERL_NIF_LATIN1)), *x);
 	if (new_x) {
 		x = &new_x;
 		return CS_SUCCEED;
@@ -1034,8 +1137,8 @@ CS_RETCODE SybStatement::encode_money4(ERL_NIF_TERM* x, CS_DATAFMT* dfmt,
 		return CS_FAIL;
 	}
 
-	ERL_NIF_TERM new_x = enif_make_list_cell(env_, *x,
-			enif_make_double(env_, dest));
+	ERL_NIF_TERM new_x = enif_make_list_cell(env_,
+			enif_make_double(env_, dest), *x);
 	if (new_x) {
 		x = &new_x;
 		return CS_SUCCEED;
@@ -1046,8 +1149,8 @@ CS_RETCODE SybStatement::encode_money4(ERL_NIF_TERM* x, CS_DATAFMT* dfmt,
 
 CS_RETCODE SybStatement::encode_text(ERL_NIF_TERM* x, CS_DATAFMT* dfmt,
 		CS_TEXT* v, CS_INT len) {
-	ERL_NIF_TERM new_x = enif_make_list_cell(env_, *x,
-			enif_make_string(env_, (const char*) v, ERL_NIF_LATIN1));
+	ERL_NIF_TERM new_x = enif_make_list_cell(env_,
+			enif_make_string(env_, (const char*) v, ERL_NIF_LATIN1), *x);
 	if (new_x) {
 		x = &new_x;
 		return CS_SUCCEED;
@@ -1061,8 +1164,8 @@ CS_RETCODE SybStatement::encode_image(ERL_NIF_TERM* x, CS_DATAFMT* dfmt,
 	ErlNifBinary* bin = NULL;
 	enif_alloc_binary((long) len, bin);
 	bin->data = (unsigned char*) v;
-	ERL_NIF_TERM new_x = enif_make_list_cell(env_, *x,
-			enif_make_binary(env_, bin));
+	ERL_NIF_TERM new_x = enif_make_list_cell(env_,
+			enif_make_binary(env_, bin), *x);
 	if (new_x) {
 		x = &new_x;
 		return CS_SUCCEED;
@@ -1091,8 +1194,8 @@ CS_RETCODE SybStatement::encode_unitext(ERL_NIF_TERM* x, CS_DATAFMT* dfmt,
 }
 
 CS_RETCODE SybStatement::encode_unknown(ERL_NIF_TERM* x) {
-	ERL_NIF_TERM new_x = enif_make_list_cell(env_, *x,
-			enif_make_atom(env_, "unknown"));
+	ERL_NIF_TERM new_x = enif_make_list_cell(env_,
+			enif_make_atom(env_, "unknown"), *x);
 	if (new_x) {
 		x = &new_x;
 		return CS_SUCCEED;
@@ -1102,8 +1205,8 @@ CS_RETCODE SybStatement::encode_unknown(ERL_NIF_TERM* x) {
 }
 
 CS_RETCODE SybStatement::encode_null(ERL_NIF_TERM* x) {
-	ERL_NIF_TERM new_x = enif_make_list_cell(env_, *x,
-			enif_make_atom(env_, "undefined"));
+	ERL_NIF_TERM new_x = enif_make_list_cell(env_,
+			enif_make_atom(env_, "undefined"), *x);
 	if (new_x) {
 		x = &new_x;
 		return CS_SUCCEED;
@@ -1113,8 +1216,8 @@ CS_RETCODE SybStatement::encode_null(ERL_NIF_TERM* x) {
 }
 
 CS_RETCODE SybStatement::encode_overflow(ERL_NIF_TERM* x) {
-	ERL_NIF_TERM new_x = enif_make_list_cell(env_, *x,
-			enif_make_atom(env_, "overflow"));
+	ERL_NIF_TERM new_x = enif_make_list_cell(env_,
+			enif_make_atom(env_, "overflow"), *x);
 	if (new_x) {
 		x = &new_x;
 		return CS_SUCCEED;
@@ -1124,12 +1227,38 @@ CS_RETCODE SybStatement::encode_overflow(ERL_NIF_TERM* x) {
 }
 
 CS_RETCODE SybStatement::encode_column_data(ERL_NIF_TERM* result,
+		int index,COLUMN_DATA *column ) {
+	CS_RETCODE retcode;
+	CS_DATAFMT *dfmt = &column->dfmt;
+
+	if (column->indicator == 0) {
+		switch ((int)dfmt->datatype) {
+
+		/** Character types */
+		case CS_CHAR_TYPE:
+			result[index] = enif_make_string(env_, (char*) column->value, ERL_NIF_LATIN1);
+			retcode = CS_SUCCEED;
+			break;
+		default:
+			retcode = encode_unknown(result);
+			if (retcode != CS_FAIL) {
+				SysLogger::error("encode_column_data: encode_unknown() failed");
+				return retcode;
+			}
+			break;
+		}
+	} 
+
+	return retcode;
+}
+
+CS_RETCODE SybStatement::encode_column_data(ERL_NIF_TERM* result,
 		COLUMN_DATA *column) {
 	CS_RETCODE retcode;
 	CS_DATAFMT *dfmt = &column->dfmt;
 
 	if (column->indicator == 0) {
-		switch (dfmt->datatype) {
+		switch ((int)dfmt->datatype) {
 
 		/** Binary types */
 		case CS_BINARY_TYPE:
@@ -1174,6 +1303,7 @@ CS_RETCODE SybStatement::encode_column_data(ERL_NIF_TERM* result,
 		case CS_CHAR_TYPE:
 			retcode = encode_char(result, dfmt, (CS_CHAR*) column->value,
 					column->valuelen);
+			
 			if (retcode != CS_SUCCEED) {
 				SysLogger::error("encode_column_data: encode_char() failed");
 				return retcode;
@@ -2070,7 +2200,6 @@ unsigned int SybStatement::get_affected_rows() {
 }
 
 CS_RETCODE SybStatement::process_describe_reslut() {
-	SysLogger::info("discrabe");
 	if (ct_res_info(cmd_, CS_NUMDATA, &param_count_, CS_UNUSED,
 			NULL) != CS_SUCCEED) {
 		SysLogger::error("process_describe_reslut: ct_res_info() failed");
@@ -2101,8 +2230,7 @@ CS_RETCODE SybStatement::process_describe_reslut() {
 
 CS_VOID* SybStatement::alloc_column_value(CS_DATAFMT *dfmt) {
 	CS_VOID *value;
-
-	switch (dfmt->datatype) {
+	switch ((int)dfmt->datatype) {
 	/** Binary types */
 	case CS_BINARY_TYPE:
 		value = (CS_VOID*) malloc(dfmt->maxlength * sizeof(CS_BINARY));
@@ -2123,7 +2251,7 @@ CS_VOID* SybStatement::alloc_column_value(CS_DATAFMT *dfmt) {
 
 		/** Character types */
 	case CS_CHAR_TYPE:
-		value = (CS_VOID*) malloc(dfmt->maxlength * sizeof(CS_CHAR));
+		value = (CS_VOID*) malloc(dfmt->maxlength* sizeof(CS_CHAR));
 		break;
 
 	case CS_LONGCHAR_TYPE:
@@ -2376,3 +2504,6 @@ CS_RETCODE SybStatement::compute_info(CS_INT index, CS_DATAFMT *data_fmt) {
 
 	return CS_SUCCEED;
 }
+
+
+
