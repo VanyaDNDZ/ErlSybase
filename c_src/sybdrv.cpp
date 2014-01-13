@@ -45,7 +45,7 @@ static ERL_NIF_TERM execute(ErlNifEnv* env, int argc,
 	ERL_NIF_TERM head;
 	ERL_NIF_TERM tail;
 	ERL_NIF_TERM list;
-	ERL_NIF_TERM result;
+	ERL_NIF_TERM* result = (ERL_NIF_TERM*)malloc(sizeof(ERL_NIF_TERM));
 	CS_RETCODE retcode;
 	if (!enif_get_resource(env, argv[0], sybdrv_crsr,
 			(void**) &sybdrv_con_handle)) {
@@ -62,12 +62,11 @@ static ERL_NIF_TERM execute(ErlNifEnv* env, int argc,
 				enif_make_string(env, "no sql found", ERL_NIF_LATIN1));
 	}
 
-	if (enif_is_empty_list(env, argv[2])) {	
-		SysLogger::info("retest");
+	if (enif_is_empty_list(env, argv[2])) {
 		stmt = sybdrv_con_handle->connection->create_statement(sql);
 		retcode=stmt->execute_sql(&result);
 		if (retcode) {
-			return enif_make_tuple2(env, enif_make_atom(env, "ok"),result);
+			return enif_make_tuple2(env, enif_make_atom(env, "ok"),*result);
 		} else {
 			SysLogger::info("could not execute cmd");
 			return enif_make_tuple2(env, enif_make_atom(env, "error"),
@@ -120,7 +119,7 @@ static ERL_NIF_TERM execute(ErlNifEnv* env, int argc,
 	
 	stmt->execute_sql(&result);
 
-	return result;
+	return *result;
 }
 
 static void unload(ErlNifEnv* env, void* arg) {

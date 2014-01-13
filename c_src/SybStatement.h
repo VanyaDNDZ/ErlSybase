@@ -63,7 +63,7 @@ public:
      *  @retval true The routine completed successfully.
      *  @retval false The routine failed.
      */
-    bool execute_sql(ERL_NIF_TERM* result);
+    bool execute_sql(ERL_NIF_TERM** result);
     
     /** @brief Execute a language command, encode result to the buffer and
      *      return success or failure.
@@ -74,7 +74,7 @@ public:
      *  @retval true The routine completed successfully.
      *  @retval false The routine failed.
      */
-    bool execute_sql(ERL_NIF_TERM* result, const char* sql);
+    bool execute_sql(ERL_NIF_TERM** result, const char* sql);
 
     /** @brief Initialize a prepare statement.
      *  @param id A pointer to the statement identifier. This identifier
@@ -428,18 +428,18 @@ private:
     CS_RETCODE handle_command_result();
     CS_RETCODE handle_command_result(CS_COMMAND *cmd);
 
-    CS_RETCODE handle_sql_result(ERL_NIF_TERM* result);
+    CS_RETCODE handle_sql_result(ERL_NIF_TERM** result);
 
     CS_RETCODE process_describe_reslut();
 
-    CS_RETCODE process_row_result(ERL_NIF_TERM* result);
+    ERL_NIF_TERM process_row_result();
 
-    CS_RETCODE encode_query_result(ERL_NIF_TERM* result, COLUMN_DATA *columns, CS_INT column_count);
+    ERL_NIF_TERM encode_query_result(COLUMN_DATA *columns, CS_INT column_count);
 
     CS_RETCODE encode_update_result(ERL_NIF_TERM* result, CS_INT row_count);
 
+    ERL_NIF_TERM encode_column_data(COLUMN_DATA *column);
     CS_RETCODE encode_column_data(ERL_NIF_TERM* result, COLUMN_DATA *column);
-    CS_RETCODE encode_column_data(ERL_NIF_TERM* result, int index, COLUMN_DATA *column);
 
     CS_VOID* alloc_column_value(CS_DATAFMT *dfmt);
 
@@ -461,75 +461,73 @@ private:
     
     inline bool set_param(CS_DATAFMT* dfmt, CS_VOID* data, CS_INT len);
 
-    CS_RETCODE encode_binary(ERL_NIF_TERM* x, CS_DATAFMT* dfmt, CS_BINARY* v, CS_INT len);
+    ERL_NIF_TERM encode_binary( CS_DATAFMT* dfmt, CS_BINARY* v, CS_INT len);
 
-    CS_RETCODE encode_longbinary(ERL_NIF_TERM* x, CS_DATAFMT* dfmt, CS_LONGBINARY* v, CS_INT len);
+    ERL_NIF_TERM encode_longbinary( CS_DATAFMT* dfmt, CS_LONGBINARY* v, CS_INT len);
 
-    CS_RETCODE encode_varbinary(ERL_NIF_TERM* x, CS_DATAFMT* dfmt, CS_VARBINARY* v);
+    ERL_NIF_TERM encode_varbinary( CS_DATAFMT* dfmt, CS_VARBINARY* v);
 
-    CS_RETCODE encode_bit(ERL_NIF_TERM* x, CS_DATAFMT* dfmt, CS_BIT* v);
-
-    CS_RETCODE encode_char(ERL_NIF_TERM* x, CS_DATAFMT* dfmt, CS_CHAR* v, CS_INT len);
+    ERL_NIF_TERM encode_bit( CS_DATAFMT* dfmt, CS_BIT* v);
 
     ERL_NIF_TERM encode_char(CS_DATAFMT* dfmt, CS_CHAR* v, CS_INT len);
 
-    CS_RETCODE encode_longchar(ERL_NIF_TERM* x, CS_DATAFMT* dfmt, CS_LONGCHAR* v, CS_INT len);
+    ERL_NIF_TERM encode_longchar( CS_DATAFMT* dfmt, CS_LONGCHAR* v, CS_INT len);
 
-    CS_RETCODE encode_varchar(ERL_NIF_TERM* x, CS_DATAFMT* dfmt, CS_VARCHAR* v);
+    ERL_NIF_TERM encode_varchar( CS_DATAFMT* dfmt, CS_VARCHAR* v);
 
-    CS_RETCODE encode_unichar(ERL_NIF_TERM* x, CS_DATAFMT* dfmt, CS_UNICHAR* v, CS_INT len);
+    ERL_NIF_TERM encode_unichar( CS_DATAFMT* dfmt, CS_UNICHAR* v, CS_INT len);
 
-    CS_RETCODE encode_xml(ERL_NIF_TERM* x, CS_DATAFMT* dfmt, CS_XML* v, CS_INT len);
+    ERL_NIF_TERM encode_xml( CS_DATAFMT* dfmt, CS_XML* v, CS_INT len);
 
-    CS_RETCODE encode_date(ERL_NIF_TERM* x, CS_DATAFMT* dfmt, CS_DATE* v);
+    ERL_NIF_TERM encode_date( CS_DATAFMT* dfmt, CS_DATE* v);
 
-    CS_RETCODE encode_time(ERL_NIF_TERM* x, CS_DATAFMT* dfmt, CS_TIME* v);
+    ERL_NIF_TERM encode_time( CS_DATAFMT* dfmt, CS_TIME* v);
 
-    CS_RETCODE encode_datetime(ERL_NIF_TERM* x, CS_DATAFMT* dfmt, CS_DATETIME* v);
+    ERL_NIF_TERM encode_datetime( CS_DATAFMT* dfmt, CS_DATETIME* v);
 
-    CS_RETCODE encode_datetime4(ERL_NIF_TERM* x, CS_DATAFMT* dfmt, CS_DATETIME4* v);
+    ERL_NIF_TERM encode_datetime4( CS_DATAFMT* dfmt, CS_DATETIME4* v);
     
-    CS_RETCODE encode_bigdatetime(ERL_NIF_TERM* x, CS_DATAFMT* dfmt, CS_BIGDATETIME* v);
+    ERL_NIF_TERM encode_bigdatetime( CS_DATAFMT* dfmt, CS_BIGDATETIME* v);
 
-    CS_RETCODE encode_bigtime(ERL_NIF_TERM* x, CS_DATAFMT* dfmt, CS_BIGTIME* v);
+    ERL_NIF_TERM encode_bigtime( CS_DATAFMT* dfmt, CS_BIGTIME* v);
     
-    CS_RETCODE encode_tinyint(ERL_NIF_TERM* x, CS_DATAFMT* dfmt, CS_TINYINT* v);
+    ERL_NIF_TERM encode_tinyint( CS_DATAFMT* dfmt, CS_TINYINT* v);
 
-    CS_RETCODE encode_smallint(ERL_NIF_TERM* x, CS_DATAFMT* dfmt, CS_SMALLINT* v);
+    ERL_NIF_TERM encode_smallint( CS_DATAFMT* dfmt, CS_SMALLINT* v);
 
-    CS_RETCODE encode_int(ERL_NIF_TERM* x, CS_DATAFMT* dfmt, CS_INT* v);
+    ERL_NIF_TERM encode_int( CS_DATAFMT* dfmt, CS_INT* v);
 
-    CS_RETCODE encode_bigint(ERL_NIF_TERM* x, CS_DATAFMT* dfmt, CS_BIGINT* v);
+    ERL_NIF_TERM encode_bigint( CS_DATAFMT* dfmt, CS_BIGINT* v);
 
-    CS_RETCODE encode_usmallint(ERL_NIF_TERM* x, CS_DATAFMT* dfmt, CS_USMALLINT* v);
+    ERL_NIF_TERM encode_usmallint( CS_DATAFMT* dfmt, CS_USMALLINT* v);
 
-    CS_RETCODE encode_uint(ERL_NIF_TERM* x, CS_DATAFMT* dfmt, CS_UINT* v);
+    ERL_NIF_TERM encode_uint( CS_DATAFMT* dfmt, CS_UINT* v);
 
-    CS_RETCODE encode_ubigint(ERL_NIF_TERM* x, CS_DATAFMT* dfmt, CS_UBIGINT* v);
+    ERL_NIF_TERM encode_ubigint( CS_DATAFMT* dfmt, CS_UBIGINT* v);
 
-    CS_RETCODE encode_decimal(ERL_NIF_TERM* x, CS_DATAFMT* dfmt, CS_DECIMAL* v);
+    ERL_NIF_TERM encode_decimal( CS_DATAFMT* dfmt, CS_DECIMAL* v);
 
-    CS_RETCODE encode_numeric(ERL_NIF_TERM* x, CS_DATAFMT* dfmt, CS_NUMERIC* v);
+    ERL_NIF_TERM encode_numeric( CS_DATAFMT* dfmt, CS_NUMERIC* v);
 
-    CS_RETCODE encode_float(ERL_NIF_TERM* x, CS_DATAFMT* dfmt, CS_FLOAT* v);
+    ERL_NIF_TERM encode_float( CS_DATAFMT* dfmt, CS_FLOAT* v);
 
-    CS_RETCODE encode_real(ERL_NIF_TERM* x, CS_DATAFMT* dfmt, CS_REAL* v);
+    ERL_NIF_TERM encode_real( CS_DATAFMT* dfmt, CS_REAL* v);
 
-    CS_RETCODE encode_money(ERL_NIF_TERM* x, CS_DATAFMT* dfmt, CS_MONEY* v);
+    ERL_NIF_TERM encode_money( CS_DATAFMT* dfmt, CS_MONEY* v);
 
-    CS_RETCODE encode_money4(ERL_NIF_TERM* x, CS_DATAFMT* dfmt, CS_MONEY4* v);
+    ERL_NIF_TERM encode_money4( CS_DATAFMT* dfmt, CS_MONEY4* v);
 
-    CS_RETCODE encode_text(ERL_NIF_TERM* x, CS_DATAFMT* dfmt, CS_TEXT* v, CS_INT len);
+    ERL_NIF_TERM encode_text( CS_DATAFMT* dfmt, CS_TEXT* v, CS_INT len);
 
-    CS_RETCODE encode_image(ERL_NIF_TERM* x, CS_DATAFMT* dfmt, CS_IMAGE* v, CS_INT len);
+    ERL_NIF_TERM encode_image( CS_DATAFMT* dfmt, CS_IMAGE* v, CS_INT len);
 
-    CS_RETCODE encode_unitext(ERL_NIF_TERM* x, CS_DATAFMT* dfmt, CS_UNITEXT* v, CS_INT len);
+    ERL_NIF_TERM encode_unitext( CS_DATAFMT* dfmt, CS_UNITEXT* v, CS_INT len);
 
-    CS_RETCODE encode_unknown(ERL_NIF_TERM* x);
+    ERL_NIF_TERM encode_unknown();
 
-    CS_RETCODE encode_overflow(ERL_NIF_TERM* x);
+    ERL_NIF_TERM encode_overflow();
 
-    CS_RETCODE encode_null(ERL_NIF_TERM* x);
+    ERL_NIF_TERM encode_null();
 };
 
 #endif // SYBSTATEMENT_H
