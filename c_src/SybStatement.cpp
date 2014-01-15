@@ -460,7 +460,8 @@ ERL_NIF_TERM SybStatement::process_row_result() {
 	}
 
 	/** Allocate memory for the data element to process. */
-	COLUMN_DATA* columns = new COLUMN_DATA[column_count];
+	COLUMN_DATA* columns = (COLUMN_DATA *)malloc(column_count
+            * sizeof (COLUMN_DATA));
 	if (columns == NULL) {
 		SysLogger::error("process_row_result: allocate COLUMN_DATA failed");
 		return cancel_current();
@@ -474,13 +475,14 @@ ERL_NIF_TERM SybStatement::process_row_result() {
 		 */
 		CS_DATAFMT *dfmt = &columns[i].dfmt;
 
-		memset(dfmt, 0, sizeof(CS_DATAFMT));
+		memset((char*)dfmt, 0, sizeof(CS_DATAFMT));
 		if (ct_describe(cmd_, (i + 1), dfmt) != CS_SUCCEED) {
 			SysLogger::error("process_row_result: ct_describe failed");
 			free_column_data(columns, i);
 			cancel_current();
 			return CS_FAIL;
 		}
+
 		columns[i].value = alloc_column_value(dfmt);
 		if (columns[i].value == NULL) {
 			SysLogger::error("process_row_result: alloc_column_value() failed");
@@ -548,11 +550,8 @@ ERL_NIF_TERM SybStatement::encode_query_result(COLUMN_DATA* columns, CS_INT colu
 			ERL_NIF_TERM* row = new ERL_NIF_TERM[column_count];
 
 			for (CS_INT i = 0; i < column_count; ++i) {
-				SysLogger::info("i=%i",i);
-				memset(row+i,0,sizeof(ERL_NIF_TERM));
 				row[i]=encode_column_data(columns+i);
 			}
-			SysLogger::info("i=%i",column_count);
 			rows = enif_make_list_cell(env_,  enif_make_list_from_array(env_,row,column_count),rows);
 		}
 	}
@@ -608,17 +607,17 @@ ERL_NIF_TERM SybStatement::encode_bit(CS_DATAFMT* dfmt,
 
 ERL_NIF_TERM SybStatement::encode_char(CS_DATAFMT* dfmt,
 		CS_CHAR* v, CS_INT len) {
-	return enif_make_string(env_, (const char*) v, ERL_NIF_LATIN1);
+	return enif_make_string_len(env_, (const char*) v,len, ERL_NIF_LATIN1);
 }
 
 ERL_NIF_TERM SybStatement::encode_longchar(CS_DATAFMT* dfmt,
 		CS_LONGCHAR* v, CS_INT len) {
-	return enif_make_string(env_, (const char*) v, ERL_NIF_LATIN1);
+	return enif_make_string_len(env_, (const char*) v,len, ERL_NIF_LATIN1);
 }
 
 ERL_NIF_TERM SybStatement::encode_varchar( CS_DATAFMT* dfmt,
 		CS_VARCHAR* v) {
-	return enif_make_string(env_, (const char*) v->str, ERL_NIF_LATIN1);
+	return enif_make_string_len(env_, (const char*) v->str,(int)v->len, ERL_NIF_LATIN1);
 }
 
 ERL_NIF_TERM SybStatement::encode_unichar(CS_DATAFMT* dfmt,
@@ -853,7 +852,7 @@ ERL_NIF_TERM SybStatement::encode_decimal( CS_DATAFMT* dfmt,
 	}
 
 	return enif_make_tuple2(env_, enif_make_atom(env_, "number"),
-					enif_make_string(env_, (const char*) dest,
+					enif_make_string_len(env_, (const char*) dest,destlen,
 							ERL_NIF_LATIN1));
 }
 
@@ -880,7 +879,7 @@ ERL_NIF_TERM SybStatement::encode_numeric(CS_DATAFMT* dfmt,
 	}
 
 	return	enif_make_tuple2(env_, enif_make_atom(env_, "number"),
-					enif_make_string(env_, (const char*) dest,
+					enif_make_string_len(env_, (const char*) dest,destlen,
 							ERL_NIF_LATIN1));
 }
 
@@ -918,7 +917,7 @@ ERL_NIF_TERM SybStatement::encode_money(CS_DATAFMT* dfmt,
 	}
 
 	return enif_make_tuple2(env_, enif_make_atom(env_, "number"),
-					enif_make_string(env_, (char*) dest, ERL_NIF_LATIN1));
+					enif_make_string_len(env_, (char*) dest,destlen, ERL_NIF_LATIN1));
 }
 
 ERL_NIF_TERM SybStatement::encode_money4(CS_DATAFMT* dfmt,
@@ -948,7 +947,7 @@ ERL_NIF_TERM SybStatement::encode_money4(CS_DATAFMT* dfmt,
 
 ERL_NIF_TERM SybStatement::encode_text( CS_DATAFMT* dfmt,
 		CS_TEXT* v, CS_INT len) {
-	return enif_make_string(env_, (const char*) v, ERL_NIF_LATIN1);
+	return enif_make_string_len(env_, (const char*) v,len, ERL_NIF_LATIN1);
 }
 
 ERL_NIF_TERM SybStatement::encode_image(CS_DATAFMT* dfmt,

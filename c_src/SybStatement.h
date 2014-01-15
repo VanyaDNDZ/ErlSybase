@@ -346,7 +346,7 @@ public:
         {
             bool retcode;
             int param_type;
-
+            SysLogger::info("bind param data=%s",data);
             param_type = get_param_type(index);
             switch((int)param_type) {
                 /** Bit types */

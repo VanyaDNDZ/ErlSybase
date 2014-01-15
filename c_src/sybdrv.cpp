@@ -36,6 +36,7 @@ static ERL_NIF_TERM connect(ErlNifEnv* env, int argc,
 	return enif_make_tuple2(env, enif_make_atom(env, "ok"), result);
 }
 
+
 static ERL_NIF_TERM execute(ErlNifEnv* env, int argc,
 		const ERL_NIF_TERM argv[]) {
 	SybStatement* stmt;
@@ -76,17 +77,17 @@ static ERL_NIF_TERM execute(ErlNifEnv* env, int argc,
 	}
 	if (!enif_is_list(env, argv[2])
 			|| !enif_get_list_cell(env, argv[2], &head, &tail)) {
-		SysLogger::info("list not found");
+		SysLogger::error("no data bind found");
 		return enif_make_tuple2(env, enif_make_atom(env, "error"),
-				enif_make_string(env, "no data found found", ERL_NIF_LATIN1));
+				enif_make_string(env, "no data bind found", ERL_NIF_LATIN1));
 	}
-	SysLogger::info("list found");
 	list = enif_make_list_cell(env, head, tail);
 	stmt = sybdrv_con_handle->connection->create_statement();
 
 	unsigned int columns;
 	enif_get_list_length(env, list, &columns);
 	if(!stmt->prepare_init("test", sql)){
+		SysLogger::error("prepare statement failed");
 		return enif_make_tuple2(env, enif_make_atom(env, "error"),
 						enif_make_string(env, "prepare fail", ERL_NIF_LATIN1));
 	}
@@ -94,24 +95,27 @@ static ERL_NIF_TERM execute(ErlNifEnv* env, int argc,
 	for (unsigned int var = 0; var < columns; ++var) {
 
 		enif_get_list_cell(env, list, &head, &tail);
-
+		SysLogger::error("has col_cnt=%i",var);
+		char * p = NULL;
 		if (enif_is_atom(env, head)) {
-			SysLogger::info("atom");
-			char * p = NULL;
 			enif_get_atom(env, head, p, sizeof(head), ERL_NIF_LATIN1);
 			stmt->set_param(var + 1, *p);
 		} else if (enif_is_list(env, head)) {
 			char * p = NULL;
 			unsigned int col_len;
 			if (!enif_get_list_length(env, head, &col_len)) {
-				return 0;
+				SysLogger::error("can't get data for bind. param_cnt = %i",var);
+				return enif_make_tuple2(env, enif_make_atom(env, "error"),
+						enif_make_string(env, "can't get data for bind", ERL_NIF_LATIN1));
 			}
 			p = (char*) malloc(col_len + 1);
 			if (!enif_get_string(env, head, p, length + 1, ERL_NIF_LATIN1)) {
+				SysLogger::error("can't get string for bind. param_cnt = %i",var);
 				return enif_make_tuple2(env, enif_make_atom(env, "error"),
 						enif_make_string(env, "no sql found", ERL_NIF_LATIN1));
 			}
-			stmt->set_param(var+1, (unsigned char) *p);
+			SysLogger::error("data to set = %s",p);
+			stmt->set_param((int)var+1, (unsigned char) *p);
 		}
 
 		list = tail;
