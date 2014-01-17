@@ -139,6 +139,11 @@ public:
      *  @see set_binary.
      */
     bool set_char(int index, char* data);
+
+    /** @brief Set the parameter .
+     *  @see set_binary.
+     */
+    bool set_char(int index, ERL_NIF_TERM char_data);
     
     /** @brief Set the parameter.
      *  @see set_binary.
@@ -342,6 +347,22 @@ public:
      *  @return The number of affected rows.
      */
     unsigned int get_affected_rows();
+
+    bool set_params(ERL_NIF_TERM list){
+        unsigned int list_index=1;
+        unsigned int list_size;
+        ERL_NIF_TERM list_head,list_tail;
+        enif_get_list_length(env_,list,&list_size);
+        while(list_size>0 && list_size>=list_index && enif_get_list_cell(env_,list,&list_head,&list_tail)) {
+            SysLogger::info("set parm_idx=%i",list_index);
+            decode_and_set_param(list_index,list_head);
+            list = list_tail;
+            ++list_index;
+        }
+        
+        return true;
+    }
+
     bool set_param( int index, unsigned char data)
         {
             bool retcode;
@@ -404,6 +425,29 @@ public:
             return retcode;
         }
 
+    bool decode_and_set_param( int index, ERL_NIF_TERM data)
+        {
+            bool retcode;
+            int param_type;
+            SysLogger::info("index=%i",index);
+            param_type = get_param_type(index);
+            SysLogger::info("param_type=%i",param_type);
+            switch((int)param_type) {
+                
+                case CS_CHAR_TYPE:
+                    retcode = decode_and_set_char(index,data);
+                    break;
+                case CS_LONGCHAR_TYPE:
+                    retcode = decode_and_set_char(index,data);
+                    break;
+                default:
+                    retcode = false;
+                    break;
+            }
+
+            return retcode;
+        }
+
 private:
     CS_CONNECTION *conn_;
     char* sql_;
@@ -419,6 +463,7 @@ private:
     char id_[CS_MAX_CHAR];
     bool is_prepare_;
     bool executed_;
+
 
     void reset();
 
@@ -528,6 +573,7 @@ private:
     ERL_NIF_TERM encode_overflow();
 
     ERL_NIF_TERM encode_null();
+    bool decode_and_set_char(int index, ERL_NIF_TERM char_data);
 };
 
 #endif // SYBSTATEMENT_H

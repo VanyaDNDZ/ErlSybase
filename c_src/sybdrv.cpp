@@ -92,38 +92,18 @@ static ERL_NIF_TERM execute(ErlNifEnv* env, int argc,
 						enif_make_string(env, "prepare fail", ERL_NIF_LATIN1));
 	}
 
-	for (unsigned int var = 0; var < columns; ++var) {
-
-		enif_get_list_cell(env, list, &head, &tail);
-		SysLogger::error("has col_cnt=%i",var);
-		char * p = NULL;
-		if (enif_is_atom(env, head)) {
-			enif_get_atom(env, head, p, sizeof(head), ERL_NIF_LATIN1);
-			stmt->set_param(var + 1, *p);
-		} else if (enif_is_list(env, head)) {
-			char * p = NULL;
-			unsigned int col_len;
-			if (!enif_get_list_length(env, head, &col_len)) {
-				SysLogger::error("can't get data for bind. param_cnt = %i",var);
-				return enif_make_tuple2(env, enif_make_atom(env, "error"),
-						enif_make_string(env, "can't get data for bind", ERL_NIF_LATIN1));
-			}
-			p = (char*) malloc(col_len + 1);
-			if (!enif_get_string(env, head, p, length + 1, ERL_NIF_LATIN1)) {
-				SysLogger::error("can't get string for bind. param_cnt = %i",var);
-				return enif_make_tuple2(env, enif_make_atom(env, "error"),
-						enif_make_string(env, "no sql found", ERL_NIF_LATIN1));
-			}
-			SysLogger::error("data to set = %s",p);
-			stmt->set_param((int)var+1, (unsigned char) *p);
+	stmt->set_params(list);
+	retcode=stmt->execute_sql(&result);
+	SysLogger::info("executed");
+	stmt->prepare_release();
+		if (retcode) {
+			return enif_make_tuple2(env, enif_make_atom(env, "ok"),*result);
+		} else {
+			SysLogger::info("could not execute cmd");
+			return enif_make_tuple2(env, enif_make_atom(env, "error"),
+					enif_make_string(env, "could not execute cmd",
+							ERL_NIF_LATIN1));
 		}
-
-		list = tail;
-	}
-	
-	stmt->execute_sql(&result);
-
-	return *result;
 }
 
 static void unload(ErlNifEnv* env, void* arg) {

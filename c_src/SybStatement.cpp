@@ -411,6 +411,11 @@ CS_RETCODE SybStatement::handle_sql_result(ERL_NIF_TERM** result) {
 
 		case CS_CMD_DONE:
 			row_count_ = get_row_count();
+			if(is_query==0){
+
+				out = enif_make_tuple2(env_,enif_make_atom(env_,"rowupdated"),enif_make_uint(env_,(unsigned int ) row_count_));
+				*result = &out;	
+			}
 			break;
 
 		default:
@@ -1242,6 +1247,26 @@ bool SybStatement::set_char(int index, char* data) {
 	return set_param(dfmt, (CS_VOID*) data, CS_NULLTERM);
 }
 
+
+bool SybStatement::decode_and_set_char(int index, ERL_NIF_TERM char_data) {
+	if (!is_prepare_ || index < 1 || index > param_count_) {
+		return false;
+	}
+	unsigned int size;
+	enif_get_list_length(env_,char_data,&size);
+	SysLogger::info("list len = %i",size);
+	char* str_buf = (char*) malloc((size+1)*sizeof(CS_CHAR));
+	if(!enif_get_string(env_,char_data,str_buf,size+1,ERL_NIF_LATIN1))
+	{
+		SysLogger::error("Error get string data");
+		return false;
+	}
+
+	CS_DATAFMT* dfmt = desc_dfmt_ + (index - 1);
+	SysLogger::info("decode_and_set_char: index=%i ; char = %s",index,str_buf);
+	return set_param(dfmt, (CS_VOID*) str_buf, CS_NULLTERM);
+}
+
 bool SybStatement::set_char(int index, char* data, unsigned int len) {
 	if (!is_prepare_ || index < 1 || index > param_count_) {
 		return false;
@@ -1785,13 +1810,16 @@ bool SybStatement::prepare_release() {
 		SysLogger::error("prepare_release: ct_dynamic(CS_DEALLOC) failed");
 		return false;
 	}
+
 	if (ct_send(cmd_) != CS_SUCCEED) {
 		SysLogger::error("prepare_release: ct_send() failed");
 		return false;
 	}
+	SysLogger::info("try to handle_command_result");
 	if (handle_command_result() != CS_SUCCEED) {
 		return false;
 	}
+	SysLogger::info("all ok");
 
 	return true;
 }
