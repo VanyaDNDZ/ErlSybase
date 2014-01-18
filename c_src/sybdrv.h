@@ -15,3 +15,5 @@ struct sybdrv_con {
 
 typedef struct sybdrv_con sybdrv_con;
 static ErlNifResourceType* sybdrv_crsr;
+
+static ERL_NIF_TERM ret_nif(ErlNifEnv* env,bool result_state,ERL_NIF_TERM* result, sybdrv_con* sybdrv_con_handle,SybStatement* stmt);

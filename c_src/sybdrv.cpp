@@ -43,11 +43,7 @@ static ERL_NIF_TERM execute(ErlNifEnv* env, int argc,
 	sybdrv_con* sybdrv_con_handle;
 	char* sql = NULL;
 	unsigned int length;
-	ERL_NIF_TERM head;
-	ERL_NIF_TERM tail;
-	ERL_NIF_TERM list;
 	ERL_NIF_TERM* result = (ERL_NIF_TERM*)malloc(sizeof(ERL_NIF_TERM));
-	CS_RETCODE retcode;
 	if (!enif_get_resource(env, argv[0], sybdrv_crsr,
 			(void**) &sybdrv_con_handle)) {
 		return enif_make_tuple2(env, enif_make_atom(env, "error"),
@@ -65,48 +61,69 @@ static ERL_NIF_TERM execute(ErlNifEnv* env, int argc,
 
 	if (enif_is_empty_list(env, argv[2])) {
 		stmt = sybdrv_con_handle->connection->create_statement(sql);
-		retcode=stmt->execute_sql(&result);
-		if (retcode) {
+		if (stmt->execute_sql(&result)) {
 			return enif_make_tuple2(env, enif_make_atom(env, "ok"),*result);
 		} else {
-			SysLogger::info("could not execute cmd");
 			return enif_make_tuple2(env, enif_make_atom(env, "error"),
 					enif_make_string(env, "could not execute cmd",
 							ERL_NIF_LATIN1));
 		}
+	}else{
+		if (!enif_is_list(env, argv[2])) {
+			SysLogger::error("no data bind found");
+			return enif_make_tuple2(env, enif_make_atom(env, "error"),
+					enif_make_string(env, "no data bind found", ERL_NIF_LATIN1));
 	}
-	if (!enif_is_list(env, argv[2])
-			|| !enif_get_list_cell(env, argv[2], &head, &tail)) {
-		SysLogger::error("no data bind found");
-		return enif_make_tuple2(env, enif_make_atom(env, "error"),
-				enif_make_string(env, "no data bind found", ERL_NIF_LATIN1));
-	}
-	list = enif_make_list_cell(env, head, tail);
 	stmt = sybdrv_con_handle->connection->create_statement();
 
 	unsigned int columns;
-	enif_get_list_length(env, list, &columns);
+	
+	enif_get_list_length(env, argv[2], &columns);
+	
 	if(!stmt->prepare_init("test", sql)){
 		SysLogger::error("prepare statement failed");
 		return enif_make_tuple2(env, enif_make_atom(env, "error"),
 						enif_make_string(env, "prepare fail", ERL_NIF_LATIN1));
 	}
 
-	stmt->set_params(list);
-	retcode=stmt->execute_sql(&result);
-	SysLogger::info("executed");
-	stmt->prepare_release();
-		if (retcode) {
-			return enif_make_tuple2(env, enif_make_atom(env, "ok"),*result);
-		} else {
-			SysLogger::info("could not execute cmd");
-			return enif_make_tuple2(env, enif_make_atom(env, "error"),
-					enif_make_string(env, "could not execute cmd",
-							ERL_NIF_LATIN1));
+	if(!stmt->set_params(argv[2])){
+		ERL_NIF_TERM out = enif_make_string(env, "could not set params",ERL_NIF_LATIN1);
+			result= &out;
+		return ret_nif(env,false,result,sybdrv_con_handle,stmt);
+	}
+	if (!stmt->execute_sql(&result) ) {
+		SysLogger::error("prepare statement failed");
+			return ret_nif(env,true,result,sybdrv_con_handle,stmt);
+	} else {
+			ERL_NIF_TERM out = enif_make_string(env, "could not execute cmd",ERL_NIF_LATIN1);
+			result= &out;
+			return ret_nif(env,false,result,sybdrv_con_handle,stmt);
 		}
+	}
+	
 }
 
+static ERL_NIF_TERM ret_nif(ErlNifEnv* env,bool result_state,ERL_NIF_TERM* result, sybdrv_con* sybdrv_con_handle,SybStatement* stmt){
+
+	if (stmt && sybdrv_con_handle){
+		stmt->prepare_release();	
+		delete stmt;
+	}
+
+	if (sybdrv_con_handle){
+		enif_release_resource(sybdrv_con_handle);
+	}
+	if(result_state){
+		return enif_make_tuple2(env, enif_make_atom(env, "ok"),*result);
+	}else{
+		return enif_make_tuple2(env, enif_make_atom(env, "error"),*result);
+	}
+
+}
+
+
 static void unload(ErlNifEnv* env, void* arg) {
+
 }
 
 static int load_init(ErlNifEnv* env, void** priv_data, ERL_NIF_TERM load_info) {
@@ -117,17 +134,6 @@ static int load_init(ErlNifEnv* env, void** priv_data, ERL_NIF_TERM load_info) {
 	return 0;
 }
 
-//static ERL_NIF_TERM execute_cmd(ErlNifEnv* env, int argc,const ERL_NIF_TERM argv[]){
-//	SybStatement* stmt;
-//    sybdrv_con* sybdrv_con_handle;
-//	if(!enif_get_resource(env,argv[0],sybdrv_crsr,(void**)&sybdrv_con_handle)){
-//		return enif_make_int(env,-6);
-//	}
-//    stmt = sybdrv_con_handle->connection->create_statement();
-//    stmt->execute_cmd("delete from oper..testread");
-//
-//	return enif_make_int(env,77);
-//}
 
 static ErlNifFunc nif_funcs[] = { { "connect", 3, connect }, { "execute", 3,
 		execute } };

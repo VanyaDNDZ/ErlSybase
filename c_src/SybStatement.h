@@ -354,8 +354,9 @@ public:
         ERL_NIF_TERM list_head,list_tail;
         enif_get_list_length(env_,list,&list_size);
         while(list_size>0 && list_size>=list_index && enif_get_list_cell(env_,list,&list_head,&list_tail)) {
-            SysLogger::info("set parm_idx=%i",list_index);
-            decode_and_set_param(list_index,list_head);
+            if(!decode_and_set_param(list_index,list_head)){
+                return false;
+            }
             list = list_tail;
             ++list_index;
         }
@@ -367,7 +368,6 @@ public:
         {
             bool retcode;
             int param_type;
-            SysLogger::info("bind param data=%s",data);
             param_type = get_param_type(index);
             switch((int)param_type) {
                 /** Bit types */
@@ -429,16 +429,48 @@ public:
         {
             bool retcode;
             int param_type;
-            SysLogger::info("index=%i",index);
             param_type = get_param_type(index);
-            SysLogger::info("param_type=%i",param_type);
             switch((int)param_type) {
                 
                 case CS_CHAR_TYPE:
+                case CS_LONGCHAR_TYPE:
+                case CS_BIT_TYPE:
                     retcode = decode_and_set_char(index,data);
                     break;
-                case CS_LONGCHAR_TYPE:
-                    retcode = decode_and_set_char(index,data);
+                case CS_VARCHAR_TYPE:
+                    retcode = decode_and_set_varchar(index,data);
+                    break;
+                case CS_LONGBINARY_TYPE:
+                    retcode = decode_and_set_longbinary(index,data);
+                    break;
+                case CS_LONG_TYPE:
+                    retcode = decode_and_set_long(index,data); 
+                    break;
+                case CS_VARBINARY_TYPE:
+                    retcode = decode_and_set_varbinary(index,data);
+                    break;
+                case CS_SMALLINT_TYPE:
+                    retcode = decode_and_set_smallint(index,data);
+                    break;
+                case CS_INT_TYPE:
+                    retcode = decode_and_set_int(index,data);
+                    break;  
+                case CS_FLOAT_TYPE:
+                case CS_REAL_TYPE:
+                    retcode = decode_and_set_real(index,data);
+                    break;
+                case CS_NUMERIC_TYPE:
+                case CS_DECIMAL_TYPE:
+                    retcode = decode_and_set_numeric(index,data);
+                    break;
+                case CS_DATETIME_TYPE:
+                    retcode = decode_and_set_datetime(index,data);
+                    break;
+                case CS_DATE_TYPE:
+                    retcode = decode_and_set_date(index,data);
+                    break;
+                case CS_TIME_TYPE:
+                    retcode = decode_and_set_time(index,data);
                     break;
                 default:
                     retcode = false;
@@ -453,7 +485,6 @@ private:
     char* sql_;
     CS_COMMAND *cmd_;
     CS_INT row_count_;
-    ErlNifEnv* env_;
     static SysLogger* log;
 
     /** data format of parameters in prepare statement */
@@ -463,6 +494,7 @@ private:
     char id_[CS_MAX_CHAR];
     bool is_prepare_;
     bool executed_;
+    ErlNifEnv* env_;
 
 
     void reset();
@@ -574,6 +606,23 @@ private:
 
     ERL_NIF_TERM encode_null();
     bool decode_and_set_char(int index, ERL_NIF_TERM char_data);
+    bool decode_and_set_binary(int index, ERL_NIF_TERM data);
+    bool decode_and_set_longbinary(int index, ERL_NIF_TERM data);
+    bool decode_and_set_varbinary(int index, ERL_NIF_TERM data);
+    bool decode_and_set_bit(int index, ERL_NIF_TERM data);
+    bool decode_and_set_longchar(int index, ERL_NIF_TERM char_data);
+    bool decode_and_set_varchar(int index, ERL_NIF_TERM char_data);
+    bool decode_and_set_unichar(int index, ERL_NIF_TERM char_data);
+    bool decode_and_set_xml(int index, ERL_NIF_TERM char_data);
+    bool decode_and_set_date(int index, ERL_NIF_TERM data);
+    bool decode_and_set_time(int index, ERL_NIF_TERM data);
+    bool decode_and_set_datetime(int index, ERL_NIF_TERM data);
+    bool decode_and_set_numeric(int index,ERL_NIF_TERM data);
+    bool decode_and_set_tinyint(int index, ERL_NIF_TERM data);
+    bool decode_and_set_smallint(int index, ERL_NIF_TERM data);
+    bool decode_and_set_int(int index, ERL_NIF_TERM data);
+    bool decode_and_set_long (int index, ERL_NIF_TERM data);
+    bool decode_and_set_real (int index, ERL_NIF_TERM data);
 };
 
 #endif // SYBSTATEMENT_H
