@@ -36,6 +36,27 @@ static ERL_NIF_TERM connect(ErlNifEnv* env, int argc,
 	return enif_make_tuple2(env, enif_make_atom(env, "ok"), result);
 }
 
+static ERL_NIF_TERM disconnect(ErlNifEnv* env, int argc,
+		const ERL_NIF_TERM argv[]) {
+	sybdrv_con* sybdrv_con_handle;
+	if (!enif_get_resource(env, argv[0], sybdrv_crsr,
+			(void**) &sybdrv_con_handle)) {
+		return enif_make_tuple2(env, enif_make_atom(env, "error"),
+				enif_make_string(env, "no connection found", ERL_NIF_LATIN1));
+	}
+	if(sybdrv_con_handle->connection->close()){
+		ERL_NIF_TERM* result=(ERL_NIF_TERM*)malloc(sizeof(ERL_NIF_TERM));
+		ERL_NIF_TERM out = enif_make_string(env, "disconnect", ERL_NIF_LATIN1);
+		result=&out;
+		return ret_nif(env,true,result,sybdrv_con_handle,NULL);
+	}else{
+		ERL_NIF_TERM* result=(ERL_NIF_TERM*)malloc(sizeof(ERL_NIF_TERM));
+		ERL_NIF_TERM out = enif_make_string(env, "faile disconnect", ERL_NIF_LATIN1);
+		result=&out;
+		return ret_nif(env,false,result,sybdrv_con_handle,NULL);
+	}
+}
+
 
 static ERL_NIF_TERM execute(ErlNifEnv* env, int argc,
 		const ERL_NIF_TERM argv[]) {
@@ -91,8 +112,7 @@ static ERL_NIF_TERM execute(ErlNifEnv* env, int argc,
 			result= &out;
 		return ret_nif(env,false,result,sybdrv_con_handle,stmt);
 	}
-	if (!stmt->execute_sql(&result) ) {
-		SysLogger::error("prepare statement failed");
+	if (stmt->execute_sql(&result) ) {
 			return ret_nif(env,true,result,sybdrv_con_handle,stmt);
 	} else {
 			ERL_NIF_TERM out = enif_make_string(env, "could not execute cmd",ERL_NIF_LATIN1);
@@ -105,6 +125,7 @@ static ERL_NIF_TERM execute(ErlNifEnv* env, int argc,
 
 static ERL_NIF_TERM ret_nif(ErlNifEnv* env,bool result_state,ERL_NIF_TERM* result, sybdrv_con* sybdrv_con_handle,SybStatement* stmt){
 
+	ERL_NIF_TERM out = *result;
 	if (stmt && sybdrv_con_handle){
 		stmt->prepare_release();	
 		delete stmt;
@@ -114,9 +135,9 @@ static ERL_NIF_TERM ret_nif(ErlNifEnv* env,bool result_state,ERL_NIF_TERM* resul
 		enif_release_resource(sybdrv_con_handle);
 	}
 	if(result_state){
-		return enif_make_tuple2(env, enif_make_atom(env, "ok"),*result);
+		return enif_make_tuple2(env, enif_make_atom(env, "ok"),out);
 	}else{
-		return enif_make_tuple2(env, enif_make_atom(env, "error"),*result);
+		return enif_make_tuple2(env, enif_make_atom(env, "error"),out);
 	}
 
 }
@@ -136,7 +157,7 @@ static int load_init(ErlNifEnv* env, void** priv_data, ERL_NIF_TERM load_info) {
 
 
 static ErlNifFunc nif_funcs[] = { { "connect", 3, connect }, { "execute", 3,
-		execute } };
+		execute },{"disconnect",1,disconnect} };
 
 
 ERL_NIF_INIT(sybdrv, nif_funcs, &load_init, NULL, NULL, NULL);

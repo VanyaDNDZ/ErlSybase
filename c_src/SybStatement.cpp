@@ -406,8 +406,8 @@ CS_RETCODE SybStatement::handle_sql_result(ERL_NIF_TERM** result) {
 
 		case CS_CMD_DONE:
 			row_count_ = get_row_count();
-			if((int)is_query==0){
-				out = enif_make_tuple2(env_,enif_make_atom(env_,"rowupdated"),enif_make_uint(env_,(unsigned int ) row_count_));
+			if (is_query == 0) {
+				out = enif_make_tuple2(env_,enif_make_atom(env_,"rowupdated"),enif_make_int(env_,(int) row_count_));
 				*result = &out;	
 			}
 			break;
@@ -433,7 +433,9 @@ CS_RETCODE SybStatement::handle_sql_result(ERL_NIF_TERM** result) {
 	}
 
 	if (is_query == 0) {
-		return encode_update_result(*result, row_count_);
+		out = enif_make_int(env_,row_count_);
+		*result = &out;	
+		return CS_SUCCEED;
 	}
 	return CS_SUCCEED;
 }
@@ -804,7 +806,7 @@ ERL_NIF_TERM SybStatement::encode_smallint(CS_DATAFMT* dfmt,
 
 ERL_NIF_TERM SybStatement::encode_int(CS_DATAFMT* dfmt,
 		CS_INT* v) {
-	return enif_make_long(env_, (long) *v);
+	return enif_make_int(env_, (int) *v);
 }
 
 ERL_NIF_TERM SybStatement::encode_bigint( CS_DATAFMT* dfmt,
@@ -1264,7 +1266,6 @@ bool SybStatement::decode_and_set_bit(int index, ERL_NIF_TERM data){
 	char* str_buf = (char*) malloc((size+1)*sizeof(CS_CHAR));
 	if(!enif_get_string(env_,data,str_buf,size+1,ERL_NIF_LATIN1))
 	{
-		SysLogger::error("Error get string data");
 		return false;
 	}
 	CS_DATAFMT* dfmt = desc_dfmt_ + (index - 1);
@@ -1301,7 +1302,6 @@ bool SybStatement::decode_and_set_char(int index, ERL_NIF_TERM char_data) {
 	char* str_buf = (char*) malloc((size+1)*sizeof(CS_CHAR));
 	if(!enif_get_string(env_,char_data,str_buf,size+1,ERL_NIF_LATIN1))
 	{
-		SysLogger::error("Error get string data");
 		return false;
 	}
 
@@ -1318,7 +1318,6 @@ bool SybStatement::decode_and_set_longchar(int index, ERL_NIF_TERM char_data) {
 	char* str_buf = (char*) malloc((size+1)*sizeof(CS_CHAR));
 	if(!enif_get_string(env_,char_data,str_buf,size+1,ERL_NIF_LATIN1))
 	{
-		SysLogger::error("Error get string data");
 		return false;
 	}
 
@@ -1368,7 +1367,6 @@ bool SybStatement::decode_and_set_varchar(int index, ERL_NIF_TERM char_data) {
 	char* str_buf = (char*) malloc((size+1)*sizeof(CS_CHAR));
 	if(!enif_get_string(env_,char_data,str_buf,size+1,ERL_NIF_LATIN1))
 	{
-		SysLogger::error("Error get string data");
 		return false;
 	}
 	if (size > CS_MAX_CHAR) {
@@ -1429,7 +1427,6 @@ bool SybStatement::decode_and_set_unichar(int index, ERL_NIF_TERM char_data) {
 	char* str_buf = (char*) malloc((size+1)*sizeof(CS_CHAR));
 	if(!enif_get_string(env_,char_data,str_buf,size+1,ERL_NIF_LATIN1))
 	{
-		SysLogger::error("Error get string data");
 		return false;
 	}
 
@@ -1457,7 +1454,6 @@ bool SybStatement::decode_and_set_xml(int index, ERL_NIF_TERM char_data) {
 	char* str_buf = (char*) malloc((size+1)*sizeof(CS_CHAR));
 	if(!enif_get_string(env_,char_data,str_buf,size+1,ERL_NIF_LATIN1))
 	{
-		SysLogger::error("Error get string data");
 		return false;
 	}
 
