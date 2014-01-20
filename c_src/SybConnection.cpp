@@ -1,3 +1,4 @@
+#include "sybdrv.h"
 #include "SybConnection.h"
 
 CS_CONTEXT* SybConnection::sContext_ = NULL;

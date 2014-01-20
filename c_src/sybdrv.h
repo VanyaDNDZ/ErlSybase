@@ -13,7 +13,22 @@ struct sybdrv_con {
    SybConnection *connection;
 };
 
-typedef struct sybdrv_con sybdrv_con;
-static ErlNifResourceType* sybdrv_crsr;
+struct sybdrv_stmt {
+   SybStatement *statement;
+};
 
-static ERL_NIF_TERM ret_nif(ErlNifEnv* env,bool result_state,ERL_NIF_TERM* result, sybdrv_con* sybdrv_con_handle,SybStatement* stmt);
+static struct  {
+	ERL_NIF_TERM ok;
+	ERL_NIF_TERM error;
+	ERL_NIF_TERM undefined;
+	ERL_NIF_TERM date;
+	ERL_NIF_TERM times;
+	ERL_NIF_TERM datetime;
+	ERL_NIF_TERM number;
+	ERL_NIF_TERM unknown;
+} sybdrv_atoms;
+
+typedef struct sybdrv_con sybdrv_con;
+
+
+
