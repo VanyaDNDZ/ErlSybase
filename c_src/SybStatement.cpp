@@ -555,6 +555,7 @@ ERL_NIF_TERM SybStatement::encode_query_result(COLUMN_DATA* columns, CS_INT colu
 				row[i]=encode_column_data(columns+i);
 			}
 			rows = enif_make_list_cell(env_,  enif_make_list_from_array(env_,row,column_count),rows);
+
 		}
 	}
 
@@ -609,6 +610,7 @@ ERL_NIF_TERM SybStatement::encode_bit(CS_DATAFMT* dfmt,
 
 ERL_NIF_TERM SybStatement::encode_char(CS_DATAFMT* dfmt,
 		CS_CHAR* v, CS_INT len) {
+
 	return enif_make_string_len(env_, (const char*) v,len, ERL_NIF_LATIN1);
 }
 
@@ -985,7 +987,11 @@ ERL_NIF_TERM SybStatement::encode_unknown() {
 }
 
 ERL_NIF_TERM SybStatement::encode_null() {
-	return sybdrv_atoms.undefined;
+	ERL_NIF_TERM undefined;
+	if(!enif_make_existing_atom(env_,"undefined",&undefined,ERL_NIF_LATIN1)){
+		enif_make_atom(env_,"undefined");
+	}
+	return undefined;
 }
 
 ERL_NIF_TERM SybStatement::encode_overflow() {
@@ -1155,7 +1161,6 @@ ERL_NIF_TERM SybStatement::encode_column_data(COLUMN_DATA *column) {
 	} else if (column->indicator == -1) {
 		encoded = encode_null();
 	} else {
-
 		/* Buffer overflow */
 		encoded = encode_overflow();
 	}
@@ -1178,7 +1183,7 @@ CS_RETCODE SybStatement::cancel_current() {
 	return ct_cancel(NULL, cmd_, CS_CANCEL_CURRENT);
 }
 
-bool SybStatement::decode_and_set_binary(int index, ERL_NIF_TERM data){
+bool SybStatement::decode_and_set_binary(int index, ERL_NIF_TERM data,  setup_callback callback){
 	if (!is_prepare_ || index < 1 || index > param_count_) {
 		return false;
 	}
@@ -1188,10 +1193,10 @@ bool SybStatement::decode_and_set_binary(int index, ERL_NIF_TERM data){
 	ErlNifBinary bin;
 	enif_inspect_binary(env_,data,&bin);
 	CS_DATAFMT* dfmt = desc_dfmt_ + (index - 1);
-	return set_param(dfmt, (CS_VOID*) bin.data, bin.size);
+	return (*this.*callback)(dfmt, (CS_VOID*) bin.data, bin.size);
 }
 
-bool SybStatement::decode_and_set_longbinary(int index, ERL_NIF_TERM data){
+bool SybStatement::decode_and_set_longbinary(int index, ERL_NIF_TERM data,  setup_callback callback){
 	if (!is_prepare_ || index < 1 || index > param_count_) {
 		return false;
 	}
@@ -1201,10 +1206,10 @@ bool SybStatement::decode_and_set_longbinary(int index, ERL_NIF_TERM data){
 	ErlNifBinary bin;
 	enif_inspect_binary(env_,data,&bin);
 	CS_DATAFMT* dfmt = desc_dfmt_ + (index - 1);
-	return set_param(dfmt, (CS_VOID*) bin.data, bin.size);
+	return (*this.*callback)(dfmt, (CS_VOID*) bin.data, bin.size);
 }
 
-bool SybStatement::decode_and_set_varbinary(int index, ERL_NIF_TERM data){
+bool SybStatement::decode_and_set_varbinary(int index, ERL_NIF_TERM data,  setup_callback callback){
 	if (!is_prepare_ || index < 1 || index > param_count_) {
 		return false;
 	}
@@ -1223,11 +1228,11 @@ bool SybStatement::decode_and_set_varbinary(int index, ERL_NIF_TERM data){
 		varbinary.len = bin.size;
 		memcpy(varbinary.array, bin.data, bin.size);
 	}
-	return set_param(dfmt, (CS_VOID*) &varbinary, sizeof(CS_VARBINARY));
+	return (*this.*callback)(dfmt, (CS_VOID*) &varbinary, sizeof(CS_VARBINARY));
 }
 
 
-bool SybStatement::decode_and_set_bit(int index, ERL_NIF_TERM data){
+bool SybStatement::decode_and_set_bit(int index, ERL_NIF_TERM data,  setup_callback callback){
 	if (!is_prepare_ || index < 1 || index > param_count_) {
 		return false;
 	}
@@ -1243,11 +1248,35 @@ bool SybStatement::decode_and_set_bit(int index, ERL_NIF_TERM data){
 		return false;
 	}
 	CS_DATAFMT* dfmt = desc_dfmt_ + (index - 1);
-	return set_param(dfmt, (CS_VOID*) str_buf, CS_NULLTERM);
+	return (*this.*callback)(dfmt, (CS_VOID*) str_buf, CS_NULLTERM);
 }
 
 
-bool SybStatement::decode_and_set_char(int index, ERL_NIF_TERM char_data) {
+bool SybStatement::decode_and_set_char(int index, ERL_NIF_TERM char_data,  setup_callback callback) {
+	if (!is_prepare_ || index < 1 || index > param_count_) {
+		return false;
+	}
+
+	if(enif_is_atom(env_,char_data) && enif_compare(sybdrv_atoms.undefined,char_data)){
+		return set_null(index);
+	}
+
+	unsigned int size;
+	
+	enif_get_list_length(env_,char_data,&size);
+	
+	char* str_buf = (char*) malloc((size+1)*sizeof(CS_CHAR));
+	
+	if(!enif_get_string(env_,char_data,str_buf,size+1,ERL_NIF_LATIN1)){
+		return false;
+	}
+
+	CS_DATAFMT* dfmt = desc_dfmt_ + (index - 1);
+	
+	return (*this.*callback)(dfmt, (CS_VOID*) str_buf, CS_NULLTERM);
+}
+
+bool SybStatement::decode_and_set_longchar(int index, ERL_NIF_TERM char_data,  setup_callback callback) {
 	if (!is_prepare_ || index < 1 || index > param_count_) {
 		return false;
 	}
@@ -1263,30 +1292,11 @@ bool SybStatement::decode_and_set_char(int index, ERL_NIF_TERM char_data) {
 	}
 
 	CS_DATAFMT* dfmt = desc_dfmt_ + (index - 1);
-	return set_param(dfmt, (CS_VOID*) str_buf, CS_NULLTERM);
-}
-
-bool SybStatement::decode_and_set_longchar(int index, ERL_NIF_TERM char_data) {
-	if (!is_prepare_ || index < 1 || index > param_count_) {
-		return false;
-	}
-	if(enif_is_atom(env_,char_data) && enif_compare(sybdrv_atoms.undefined,char_data)){
-		return set_null(index);
-	}
-	unsigned int size;
-	enif_get_list_length(env_,char_data,&size);
-	char* str_buf = (char*) malloc((size+1)*sizeof(CS_CHAR));
-	if(!enif_get_string(env_,char_data,str_buf,size+1,ERL_NIF_LATIN1))
-	{
-		return false;
-	}
-
-	CS_DATAFMT* dfmt = desc_dfmt_ + (index - 1);
-	return set_param(dfmt, (CS_VOID*) str_buf, CS_NULLTERM);
+	return (*this.*callback)(dfmt, (CS_VOID*) str_buf, CS_NULLTERM);
 }
 
 
-bool SybStatement::decode_and_set_varchar(int index, ERL_NIF_TERM char_data) {
+bool SybStatement::decode_and_set_varchar(int index, ERL_NIF_TERM char_data,  setup_callback callback) {
 	if (!is_prepare_ || index < 1 || index > param_count_) {
 		return false;
 	}
@@ -1309,10 +1319,10 @@ bool SybStatement::decode_and_set_varchar(int index, ERL_NIF_TERM char_data) {
 	}
 
 	CS_DATAFMT* dfmt = desc_dfmt_ + (index - 1);
-	return set_param(dfmt, (CS_VOID*) &varchar, 1);
+	return (*this.*callback)(dfmt, (CS_VOID*) &varchar, 1);
 }
 
-bool SybStatement::decode_and_set_unichar(int index, ERL_NIF_TERM char_data) {
+bool SybStatement::decode_and_set_unichar(int index, ERL_NIF_TERM char_data,  setup_callback callback) {
 	if (!is_prepare_ || index < 1 || index > param_count_) {
 		return false;
 	}
@@ -1328,11 +1338,11 @@ bool SybStatement::decode_and_set_unichar(int index, ERL_NIF_TERM char_data) {
 	}
 
 	CS_DATAFMT* dfmt = desc_dfmt_ + (index - 1);
-	return set_param(dfmt, (CS_VOID*) str_buf, CS_NULLTERM);
+	return (*this.*callback)(dfmt, (CS_VOID*) str_buf, CS_NULLTERM);
 }
 
 
-bool SybStatement::decode_and_set_xml(int index, ERL_NIF_TERM char_data) {
+bool SybStatement::decode_and_set_xml(int index, ERL_NIF_TERM char_data,  setup_callback callback) {
 	if (!is_prepare_ || index < 1 || index > param_count_) {
 		return false;
 	}
@@ -1348,10 +1358,10 @@ bool SybStatement::decode_and_set_xml(int index, ERL_NIF_TERM char_data) {
 	}
 
 	CS_DATAFMT* dfmt = desc_dfmt_ + (index - 1);
-	return set_param(dfmt, (CS_VOID*) str_buf, CS_NULLTERM);
+	return (*this.*callback)(dfmt, (CS_VOID*) str_buf, CS_NULLTERM);
 }
 
-bool SybStatement::decode_and_set_date(int index, ERL_NIF_TERM data) {
+bool SybStatement::decode_and_set_date(int index, ERL_NIF_TERM data,  setup_callback callback) {
 	if (!is_prepare_ || index < 1 || index > param_count_) {
 		return false;
 	}
@@ -1401,10 +1411,10 @@ bool SybStatement::decode_and_set_date(int index, ERL_NIF_TERM data) {
 	
 	CS_DATAFMT* dfmt = desc_dfmt_ + (index - 1);
 	
-	return set_param(dfmt, (CS_VOID*) &days, CS_UNUSED);
+	return (*this.*callback)(dfmt, (CS_VOID*) &days, CS_UNUSED);
 }
 
-bool SybStatement::decode_and_set_time(int index, ERL_NIF_TERM data) {
+bool SybStatement::decode_and_set_time(int index, ERL_NIF_TERM data,  setup_callback callback) {
 	if (!is_prepare_ || index < 1 || index > param_count_) {
 		return false;
 	}
@@ -1455,10 +1465,10 @@ bool SybStatement::decode_and_set_time(int index, ERL_NIF_TERM data) {
 	
 	CS_DATAFMT* dfmt = desc_dfmt_ + (index - 1);
 	
-	return set_param(dfmt, (CS_VOID*) &mseconds, CS_UNUSED);
+	return (*this.*callback)(dfmt, (CS_VOID*) &mseconds, CS_UNUSED);
 }
 
-bool SybStatement::decode_and_set_datetime(int index, ERL_NIF_TERM data) {
+bool SybStatement::decode_and_set_datetime(int index, ERL_NIF_TERM data,  setup_callback callback) {
 	if (!is_prepare_ || index < 1 || index > param_count_) {
 		return false;
 	}
@@ -1542,11 +1552,11 @@ bool SybStatement::decode_and_set_datetime(int index, ERL_NIF_TERM data) {
 	
 	CS_DATAFMT* dfmt = desc_dfmt_ + (index - 1);
 	
-	return set_param(dfmt, (CS_VOID*) &datetime, CS_UNUSED);
+	return (*this.*callback)(dfmt, (CS_VOID*) &datetime, CS_UNUSED);
 }
 
 
-bool SybStatement::decode_and_set_tinyint(int index, ERL_NIF_TERM data){
+bool SybStatement::decode_and_set_tinyint(int index, ERL_NIF_TERM data,  setup_callback callback){
 
 	if (!is_prepare_ || index < 1 || index > param_count_) {
 		return false;
@@ -1566,10 +1576,10 @@ bool SybStatement::decode_and_set_tinyint(int index, ERL_NIF_TERM data){
 
 	CS_DATAFMT* dfmt = desc_dfmt_ + (index - 1);
 
-	return set_param(dfmt, (CS_VOID*) &l, CS_UNUSED);	
+	return (*this.*callback)(dfmt, (CS_VOID*) &l, CS_UNUSED);	
 }
 
-bool SybStatement::decode_and_set_smallint(int index, ERL_NIF_TERM data){
+bool SybStatement::decode_and_set_smallint(int index, ERL_NIF_TERM data,  setup_callback callback){
 
 	if (!is_prepare_ || index < 1 || index > param_count_) {
 		return false;
@@ -1590,10 +1600,10 @@ bool SybStatement::decode_and_set_smallint(int index, ERL_NIF_TERM data){
 
 	CS_DATAFMT* dfmt = desc_dfmt_ + (index - 1);
 
-	return set_param(dfmt, (CS_VOID*) &l, CS_UNUSED);	
+	return (*this.*callback)(dfmt, (CS_VOID*) &l, CS_UNUSED);	
 }
 
-bool SybStatement::decode_and_set_real(int index, ERL_NIF_TERM data){
+bool SybStatement::decode_and_set_real(int index, ERL_NIF_TERM data,  setup_callback callback){
 
 	if (!is_prepare_ || index < 1 || index > param_count_) {
 		return false;
@@ -1610,11 +1620,11 @@ bool SybStatement::decode_and_set_real(int index, ERL_NIF_TERM data){
 
 	CS_DATAFMT* dfmt = desc_dfmt_ + (index - 1);
 
-	return set_param(dfmt, (CS_VOID*) &l, CS_UNUSED);	
+	return (*this.*callback)(dfmt, (CS_VOID*) &l, CS_UNUSED);	
 }
 
 
-bool SybStatement::decode_and_set_int(int index, ERL_NIF_TERM data){
+bool SybStatement::decode_and_set_int(int index, ERL_NIF_TERM data,  setup_callback callback){
 
 	if (!is_prepare_ || index < 1 || index > param_count_) {
 		return false;
@@ -1631,10 +1641,10 @@ bool SybStatement::decode_and_set_int(int index, ERL_NIF_TERM data){
 
 	CS_DATAFMT* dfmt = desc_dfmt_ + (index - 1);
 
-	return set_param(dfmt, (CS_VOID*) &l, CS_UNUSED);	
+	return (*this.*callback)(dfmt, (CS_VOID*) &l, CS_UNUSED);	
 }
 
-bool SybStatement::decode_and_set_long(int index, ERL_NIF_TERM data){
+bool SybStatement::decode_and_set_long(int index, ERL_NIF_TERM data,  setup_callback callback){
 
 	if (!is_prepare_ || index < 1 || index > param_count_) {
 		return false;
@@ -1649,10 +1659,10 @@ bool SybStatement::decode_and_set_long(int index, ERL_NIF_TERM data){
 
 	CS_DATAFMT* dfmt = desc_dfmt_ + (index - 1);
 
-	return set_param(dfmt, (CS_VOID*) &l, CS_UNUSED);	
+	return (*this.*callback)(dfmt, (CS_VOID*) &l, CS_UNUSED);	
 }
 
-bool SybStatement::decode_and_set_numeric(int index,ERL_NIF_TERM data){
+bool SybStatement::decode_and_set_numeric(int index,ERL_NIF_TERM data,  setup_callback callback){
 	if (!is_prepare_ || index < 1 || index > param_count_) {
 		return false;
 	}
@@ -1707,7 +1717,7 @@ bool SybStatement::decode_and_set_numeric(int index,ERL_NIF_TERM data){
 	}
 
 
-	return set_param(dfmt, (CS_VOID*) &dest, CS_UNUSED);
+	return (*this.*callback)(dfmt, (CS_VOID*) &dest, CS_UNUSED);
 }
 
 

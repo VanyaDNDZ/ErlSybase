@@ -26,6 +26,8 @@ class SybStatement {
         CS_SMALLINT indicator;
     } COLUMN_DATA;
 
+    typedef bool (SybStatement::*setup_callback)(CS_DATAFMT* dfmt, CS_VOID* data, CS_INT len);
+
 public:
     /** @brief Constructor for SybStatement class.
      *  @param context A pointer to a CS_CONTEXT structure.
@@ -354,11 +356,64 @@ public:
         ERL_NIF_TERM list_head,list_tail;
         enif_get_list_length(env_,list,&list_size);
         while(list_size>0 && list_size>=list_index && enif_get_list_cell(env_,list,&list_head,&list_tail)) {
-            if(!decode_and_set_param(list_index,list_head)){
+            if(!decode_and_set_param(list_index,list_head,false)){
                 return false;
             }
             list = list_tail;
             ++list_index;
+        }
+        
+        return true;
+    }
+
+    bool batch_initial_bind(int column_count){
+        ct_dynamic(cmd_, CS_EXECUTE, id_, CS_NULLTERM, NULL,
+        CS_UNUSED);
+        for (int i = 0; i < column_count; ++i)
+        {
+            CS_DATAFMT* dfmt = desc_dfmt_ + i;
+            if(!ct_setparam(cmd_, dfmt, NULL, NULL, NULL)){
+                return false;
+            }
+        }
+        return true;
+    }
+
+    bool set_params_batch(ERL_NIF_TERM list){
+        unsigned int list_index=1,rows_index=1;
+        unsigned int list_size,rows;
+        ERL_NIF_TERM rows_head,rows_tail,list_head,list_tail;
+        enif_get_list_length(env_,list,&rows);
+        while(rows>0 && rows>=rows_index && enif_get_list_cell(env_,list,&rows_head,&rows_tail)){
+            
+            if (rows_index==1){
+                if(!enif_get_list_length(env_,rows_head,&list_size)){
+                    return false;
+                }
+
+                if(!batch_initial_bind(list_size)){
+                    return false;   
+                }
+
+            }
+
+            
+            while(list_size>0 && list_size>=list_index && enif_get_list_cell(env_,rows_head,&list_head,&list_tail)) {
+            
+                if(!decode_and_set_param(list_index,list_head,true)){
+                    return false;
+                }
+            
+                rows_head = list_tail;
+            
+                ++list_index;
+            }
+            list=rows_tail;
+            ++rows_index;
+        }
+        
+        if(!ct_send(cmd_)){
+            return false;
         }
         
         return true;
@@ -425,52 +480,61 @@ public:
             return retcode;
         }
 
-    bool decode_and_set_param( int index, ERL_NIF_TERM data)
+    bool decode_and_set_param( int index, ERL_NIF_TERM data,bool is_bulk = false)
         {
+            setup_callback callback;
+            
+            if(!is_bulk){
+                    callback= &SybStatement::set_param;
+            }
+            
             bool retcode;
+            
             int param_type;
+            
             param_type = get_param_type(index);
+            
             switch((int)param_type) {
                 
                 case CS_CHAR_TYPE:
                 case CS_LONGCHAR_TYPE:
                 case CS_BIT_TYPE:
-                    retcode = decode_and_set_char(index,data);
+                    retcode = decode_and_set_char(index,data,callback);
                     break;
                 case CS_VARCHAR_TYPE:
-                    retcode = decode_and_set_varchar(index,data);
+                    retcode = decode_and_set_varchar(index,data,callback);
                     break;
                 case CS_LONGBINARY_TYPE:
-                    retcode = decode_and_set_longbinary(index,data);
+                    retcode = decode_and_set_longbinary(index,data,callback);
                     break;
                 case CS_LONG_TYPE:
-                    retcode = decode_and_set_long(index,data); 
+                    retcode = decode_and_set_long(index,data,callback); 
                     break;
                 case CS_VARBINARY_TYPE:
-                    retcode = decode_and_set_varbinary(index,data);
+                    retcode = decode_and_set_varbinary(index,data,callback);
                     break;
                 case CS_SMALLINT_TYPE:
-                    retcode = decode_and_set_smallint(index,data);
+                    retcode = decode_and_set_smallint(index,data,callback);
                     break;
                 case CS_INT_TYPE:
-                    retcode = decode_and_set_int(index,data);
+                    retcode = decode_and_set_int(index,data,callback);
                     break;  
                 case CS_FLOAT_TYPE:
                 case CS_REAL_TYPE:
-                    retcode = decode_and_set_real(index,data);
+                    retcode = decode_and_set_real(index,data,callback);
                     break;
                 case CS_NUMERIC_TYPE:
                 case CS_DECIMAL_TYPE:
-                    retcode = decode_and_set_numeric(index,data);
+                    retcode = decode_and_set_numeric(index,data,callback);
                     break;
                 case CS_DATETIME_TYPE:
-                    retcode = decode_and_set_datetime(index,data);
+                    retcode = decode_and_set_datetime(index,data,callback);
                     break;
                 case CS_DATE_TYPE:
-                    retcode = decode_and_set_date(index,data);
+                    retcode = decode_and_set_date(index,data,callback);
                     break;
                 case CS_TIME_TYPE:
-                    retcode = decode_and_set_time(index,data);
+                    retcode = decode_and_set_time(index,data,callback);
                     break;
                 default:
                     retcode = false;
@@ -536,7 +600,7 @@ private:
 
     CS_RETCODE compute_info(CS_INT index, CS_DATAFMT *data_fmt);
     
-    inline bool set_param(CS_DATAFMT* dfmt, CS_VOID* data, CS_INT len);
+    bool set_param(CS_DATAFMT* dfmt, CS_VOID* data, CS_INT len);
 
     ERL_NIF_TERM encode_binary( CS_DATAFMT* dfmt, CS_BINARY* v, CS_INT len);
 
@@ -605,24 +669,24 @@ private:
     ERL_NIF_TERM encode_overflow();
 
     ERL_NIF_TERM encode_null();
-    bool decode_and_set_char(int index, ERL_NIF_TERM char_data);
-    bool decode_and_set_binary(int index, ERL_NIF_TERM data);
-    bool decode_and_set_longbinary(int index, ERL_NIF_TERM data);
-    bool decode_and_set_varbinary(int index, ERL_NIF_TERM data);
-    bool decode_and_set_bit(int index, ERL_NIF_TERM data);
-    bool decode_and_set_longchar(int index, ERL_NIF_TERM char_data);
-    bool decode_and_set_varchar(int index, ERL_NIF_TERM char_data);
-    bool decode_and_set_unichar(int index, ERL_NIF_TERM char_data);
-    bool decode_and_set_xml(int index, ERL_NIF_TERM char_data);
-    bool decode_and_set_date(int index, ERL_NIF_TERM data);
-    bool decode_and_set_time(int index, ERL_NIF_TERM data);
-    bool decode_and_set_datetime(int index, ERL_NIF_TERM data);
-    bool decode_and_set_numeric(int index,ERL_NIF_TERM data);
-    bool decode_and_set_tinyint(int index, ERL_NIF_TERM data);
-    bool decode_and_set_smallint(int index, ERL_NIF_TERM data);
-    bool decode_and_set_int(int index, ERL_NIF_TERM data);
-    bool decode_and_set_long (int index, ERL_NIF_TERM data);
-    bool decode_and_set_real (int index, ERL_NIF_TERM data);
+    bool decode_and_set_char(int index, ERL_NIF_TERM char_data,setup_callback);
+    bool decode_and_set_binary(int index, ERL_NIF_TERM data,  setup_callback callback);
+    bool decode_and_set_longbinary(int index, ERL_NIF_TERM data,  setup_callback callback);
+    bool decode_and_set_varbinary(int index, ERL_NIF_TERM data,  setup_callback callback);
+    bool decode_and_set_bit(int index, ERL_NIF_TERM data,  setup_callback callback);
+    bool decode_and_set_longchar(int index, ERL_NIF_TERM char_data,  setup_callback callback);
+    bool decode_and_set_varchar(int index, ERL_NIF_TERM char_data,  setup_callback callback);
+    bool decode_and_set_unichar(int index, ERL_NIF_TERM char_data,  setup_callback callback);
+    bool decode_and_set_xml(int index, ERL_NIF_TERM char_data,  setup_callback callback);
+    bool decode_and_set_date(int index, ERL_NIF_TERM data,  setup_callback callback);
+    bool decode_and_set_time(int index, ERL_NIF_TERM data,  setup_callback callback);
+    bool decode_and_set_datetime(int index, ERL_NIF_TERM data,  setup_callback callback);
+    bool decode_and_set_numeric(int index,ERL_NIF_TERM data,  setup_callback callback);
+    bool decode_and_set_tinyint(int index, ERL_NIF_TERM data,  setup_callback callback);
+    bool decode_and_set_smallint(int index, ERL_NIF_TERM data,  setup_callback callback);
+    bool decode_and_set_int(int index, ERL_NIF_TERM data,  setup_callback callback);
+    bool decode_and_set_long (int index, ERL_NIF_TERM data,  setup_callback callback);
+    bool decode_and_set_real (int index, ERL_NIF_TERM data,  setup_callback callback);
 };
 
 #endif // SYBSTATEMENT_H

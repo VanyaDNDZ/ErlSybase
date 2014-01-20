@@ -60,6 +60,24 @@ static ERL_NIF_TERM disconnect(ErlNifEnv* env, int argc,
 	}
 }
 
+static ERL_NIF_TERM execute_batch(ErlNifEnv* env,int argc,const ERL_NIF_TERM argv[]){
+	if(argc !=2){
+		return enif_make_badarg(env);
+	}
+	sybdrv_stmt* sybdrv_statement_handle;
+	if (!enif_get_resource(env, argv[0], sybdrv_srsr,
+			(void**) &sybdrv_statement_handle)) {
+		return enif_make_badarg(env);
+	}
+	if (!enif_is_list(env,argv[1]))
+	{
+		return enif_make_badarg(env);
+	}
+	if(!sybdrv_statement_handle->statement->set_params_batch(argv[1])){
+		return sybdrv_atoms.error;
+	}
+	return sybdrv_atoms.ok;
+}
 
 static ERL_NIF_TERM prepare_statement(ErlNifEnv* env,int argc,const ERL_NIF_TERM argv[]){
 	if(argc!=3){
@@ -148,6 +166,7 @@ static ERL_NIF_TERM execute(ErlNifEnv* env, int argc,
 	if (enif_is_empty_list(env, argv[2])) {
 		stmt = sybdrv_con_handle->connection->create_statement(sql);
 		if (stmt->execute_sql(&result)) {
+			SysLogger::info("1");
 			return enif_make_tuple2(env, sybdrv_atoms.ok,*result);
 		} else {
 			return enif_make_tuple2(env, sybdrv_atoms.error,
@@ -240,7 +259,8 @@ static ErlNifFunc nif_funcs[] = {
 		{ "execute", 3, execute },
 		{"disconnect",1,disconnect},
 		{"prepare_statement",3,prepare_statement},
-		{"close_statement",1,close_statement}};
+		{"close_statement",1,close_statement},
+		{"execute_batch",2,execute_batch}};
 
 
 ERL_NIF_INIT(sybdrv, nif_funcs, &load_init, NULL, NULL, NULL);

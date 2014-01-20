@@ -1,5 +1,5 @@
 -module (sybdrv).
--export ([init/0,connect/3,disconnect/1,execute/3,execute_cmd/2,test/1,test_insert/1,test_out/1,prepare_statement/3,close_statement/1]).
+-export ([init/0,connect/3,execute_batch/2,disconnect/1,execute/3,execute_cmd/2,test/1,test_insert/1,test_out/1,prepare_statement/3,close_statement/1]).
 
 
 init()->
@@ -31,6 +31,8 @@ prepare_statement(_Conn, _Id,_Sql)->
 close_statement(_Stmt)->
     erlang:nif_error(nif_library_not_loaded).  
 
+execute_batch(_Stmt, _Params)->
+    erlang:nif_error(nif_library_not_loaded).  
 
 test(Conn)->
 sybdrv:execute(Conn,"SELECT * from oper..tt",[]),
