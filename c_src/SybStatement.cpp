@@ -444,7 +444,7 @@ CS_RETCODE SybStatement::handle_sql_result(ERL_NIF_TERM** result) {
 
 CS_RETCODE SybStatement::encode_update_result(ERL_NIF_TERM* result,
 		CS_INT row_count) {
-	ERL_NIF_TERM out = enif_make_tuple2(env_, sybdrv_atoms.ok,
+	ERL_NIF_TERM out = enif_make_tuple2(env_, make_atom(env_,"ok"),
 			enif_make_long(env_, row_count));
 	result = &out;
 	return CS_SUCCEED;
@@ -525,6 +525,27 @@ bool SybStatement::set_param(CS_DATAFMT* dfmt, CS_VOID* data, CS_INT len) {
 	return true;
 }
 
+
+bool SybStatement::set_batch_param(CS_DATAFMT* dfmt, CS_VOID* data, CS_INT len) {
+	if (!executed_) {
+		if (ct_dynamic(cmd_, CS_EXECUTE, id_, CS_NULLTERM, NULL,
+				CS_UNUSED) != CS_SUCCEED) {
+			SysLogger::error("set_param: ct_dynamic() failed");
+			return false;
+		}
+		executed_ = true;
+	}
+
+	dfmt->status = CS_INPUTVALUE;
+
+	if (ct_setparam(cmd_, dfmt, (CS_VOID *) data, &len, 0) != CS_SUCCEED) {
+		SysLogger::error("set_param: ct_param() failed");
+		return false;
+	}
+
+	return true;
+}
+
 bool SybStatement::batch_initial_bind(int column_count){
         ct_dynamic(cmd_, CS_EXECUTE, id_, CS_NULLTERM, NULL,
         CS_UNUSED);
@@ -583,6 +604,7 @@ bool SybStatement::set_params_batch(ERL_NIF_TERM list){
             
                 ++list_index;
             }
+            ct_send_params(cmd_, CS_UNUSED);
             list=rows_tail;
             ++rows_index;
         }
@@ -753,7 +775,7 @@ ERL_NIF_TERM SybStatement::encode_time(CS_DATAFMT* dfmt,
 		return CS_FAIL;
 	}
 
-	return  enif_make_tuple2(env_, sybdrv_atoms.times,
+	return  enif_make_tuple2(env_, make_atom(env_,"time"),
 			enif_make_tuple4(env_, enif_make_long(env_, daterec.datehour),
 					enif_make_long(env_, daterec.dateminute),
 					enif_make_long(env_, daterec.datesecond),
@@ -775,7 +797,7 @@ ERL_NIF_TERM SybStatement::encode_datetime(CS_DATAFMT* dfmt,
 		return CS_FAIL;
 	}
 
-	return enif_make_tuple2(env_, sybdrv_atoms.datetime,
+	return enif_make_tuple2(env_, enif_make_atom(env_,"datetime"),
 			enif_make_tuple2(env_,
 					enif_make_tuple3(env_,
 							enif_make_long(env_, daterec.dateyear),
@@ -830,7 +852,7 @@ ERL_NIF_TERM SybStatement::encode_bigdatetime(CS_DATAFMT* dfmt,
 	}
 
 	return enif_make_tuple2(env_,
-			enif_make_atom(env_, "bigdatetime"),
+			make_atom(env_, "bigdatetime"),
 			enif_make_tuple2(env_,
 					enif_make_tuple3(env_,
 							enif_make_long(env_, daterec.dateyear),
@@ -859,7 +881,7 @@ ERL_NIF_TERM SybStatement::encode_bigtime(CS_DATAFMT* dfmt,
 		return CS_FAIL;
 	}
 
-	return enif_make_tuple2(env_, enif_make_atom(env_, "bigtime"),
+	return enif_make_tuple2(env_, make_atom(env_, "bigtime"),
 			enif_make_tuple5(env_, enif_make_long(env_, daterec.datehour),
 					enif_make_long(env_, daterec.dateminute),
 					enif_make_long(env_, daterec.datesecond),
@@ -924,7 +946,7 @@ ERL_NIF_TERM SybStatement::encode_decimal( CS_DATAFMT* dfmt,
 		return CS_FAIL;
 	}
 
-	return enif_make_tuple2(env_, sybdrv_atoms.number,
+	return enif_make_tuple2(env_, make_atom(env_,"number"),
 					enif_make_string_len(env_, (const char*) dest,destlen,
 							ERL_NIF_LATIN1));
 }
@@ -951,7 +973,7 @@ ERL_NIF_TERM SybStatement::encode_numeric(CS_DATAFMT* dfmt,
 		return CS_FAIL;
 	}
 
-	return	enif_make_tuple2(env_, sybdrv_atoms.number,
+	return	enif_make_tuple2(env_, make_atom(env_,"number"),
 					enif_make_string_len(env_, (const char*) dest,destlen,
 							ERL_NIF_LATIN1));
 }
@@ -989,7 +1011,7 @@ ERL_NIF_TERM SybStatement::encode_money(CS_DATAFMT* dfmt,
 		return CS_FAIL;
 	}
 
-	return enif_make_tuple2(env_, sybdrv_atoms.number,
+	return enif_make_tuple2(env_, make_atom(env_,"number"),
 					enif_make_string_len(env_, (char*) dest,destlen, ERL_NIF_LATIN1));
 }
 
@@ -1034,7 +1056,7 @@ ERL_NIF_TERM SybStatement::encode_image(CS_DATAFMT* dfmt,
 
 ERL_NIF_TERM SybStatement::encode_unitext( CS_DATAFMT* dfmt,
 		CS_UNITEXT* v, CS_INT len) {
-	return sybdrv_atoms.error;
+	return make_atom(env_,"error");
 	/*CS_INT i;
 
 	 len = len / sizeof(CS_UNICHAR);
@@ -1052,24 +1074,21 @@ ERL_NIF_TERM SybStatement::encode_unitext( CS_DATAFMT* dfmt,
 }
 
 ERL_NIF_TERM SybStatement::encode_unknown() {
-	return sybdrv_atoms.unknown;
+	return make_atom(env_,"unknown");
 }
 
 ERL_NIF_TERM SybStatement::encode_null() {
-	ERL_NIF_TERM undefined;
-	if(!enif_make_existing_atom(env_,"undefined",&undefined,ERL_NIF_LATIN1)){
-		enif_make_atom(env_,"undefined");
-	}
-	return undefined;
+	return make_atom(env_,"undefined");
 }
 
 ERL_NIF_TERM SybStatement::encode_overflow() {
-	return enif_make_atom(env_, "overflow");
+	return make_atom(env_, "overflow");
 }
 
 ERL_NIF_TERM SybStatement::encode_column_data(COLUMN_DATA *column) {
 	CS_DATAFMT *dfmt = &column->dfmt;
 	ERL_NIF_TERM encoded;
+	SysLogger::info("type=%i",dfmt->datatype);
 	if (column->indicator == 0) {
 		switch ((int)dfmt->datatype) {
 
@@ -1256,7 +1275,7 @@ bool SybStatement::decode_and_set_binary(int index, ERL_NIF_TERM data,  setup_ca
 	if (!is_prepare_ || index < 1 || index > param_count_) {
 		return false;
 	}
-	if(enif_is_atom(env_,data) && enif_compare(sybdrv_atoms.undefined,data)){
+	if(enif_is_atom(env_,data) && enif_compare(make_atom(env_,"undefined"),data)){
 		return set_null(index);
 	}
 	ErlNifBinary bin;
@@ -1269,7 +1288,7 @@ bool SybStatement::decode_and_set_longbinary(int index, ERL_NIF_TERM data,  setu
 	if (!is_prepare_ || index < 1 || index > param_count_) {
 		return false;
 	}
-	if(enif_is_atom(env_,data) && enif_compare(sybdrv_atoms.undefined,data)){
+	if(enif_is_atom(env_,data) && enif_compare(make_atom(env_,"undefined"),data)){
 		return set_null(index);
 	}
 	ErlNifBinary bin;
@@ -1282,7 +1301,7 @@ bool SybStatement::decode_and_set_varbinary(int index, ERL_NIF_TERM data,  setup
 	if (!is_prepare_ || index < 1 || index > param_count_) {
 		return false;
 	}
-	if(enif_is_atom(env_,data) && enif_compare(sybdrv_atoms.undefined,data)){
+	if(enif_is_atom(env_,data) && enif_compare(make_atom(env_,"undefined"),data)){
 		return set_null(index);
 	}
 	CS_VARBINARY varbinary;
@@ -1305,7 +1324,7 @@ bool SybStatement::decode_and_set_bit(int index, ERL_NIF_TERM data,  setup_callb
 	if (!is_prepare_ || index < 1 || index > param_count_) {
 		return false;
 	}
-	if(enif_is_atom(env_,data) && enif_compare(sybdrv_atoms.undefined,data)){
+	if(enif_is_atom(env_,data) && enif_compare(make_atom(env_,"undefined"),data)){
 		return set_null(index);
 	}
 
@@ -1326,7 +1345,7 @@ bool SybStatement::decode_and_set_char(int index, ERL_NIF_TERM char_data,  setup
 		return false;
 	}
 
-	if(enif_is_atom(env_,char_data) && enif_compare(sybdrv_atoms.undefined,char_data)){
+	if(enif_is_atom(env_,char_data) && enif_compare(make_atom(env_,"undefined"),char_data)){
 		return set_null(index);
 	}
 
@@ -1349,7 +1368,7 @@ bool SybStatement::decode_and_set_longchar(int index, ERL_NIF_TERM char_data,  s
 	if (!is_prepare_ || index < 1 || index > param_count_) {
 		return false;
 	}
-	if(enif_is_atom(env_,char_data) && enif_compare(sybdrv_atoms.undefined,char_data)){
+	if(enif_is_atom(env_,char_data) && enif_compare(make_atom(env_,"undefined"),char_data)){
 		return set_null(index);
 	}
 	unsigned int size;
@@ -1369,7 +1388,7 @@ bool SybStatement::decode_and_set_varchar(int index, ERL_NIF_TERM char_data,  se
 	if (!is_prepare_ || index < 1 || index > param_count_) {
 		return false;
 	}
-	if(enif_is_atom(env_,char_data) && enif_compare(sybdrv_atoms.undefined,char_data)){
+	if(enif_is_atom(env_,char_data) && enif_compare(make_atom(env_,"undefined"),char_data)){
 		return set_null(index);
 	}
 	CS_VARCHAR varchar;
@@ -1395,7 +1414,7 @@ bool SybStatement::decode_and_set_unichar(int index, ERL_NIF_TERM char_data,  se
 	if (!is_prepare_ || index < 1 || index > param_count_) {
 		return false;
 	}
-	if(enif_is_atom(env_,char_data) && enif_compare(sybdrv_atoms.undefined,char_data)){
+	if(enif_is_atom(env_,char_data) && enif_compare(make_atom(env_,"undefined"),char_data)){
 		return set_null(index);
 	}
 	unsigned int size;
@@ -1415,7 +1434,7 @@ bool SybStatement::decode_and_set_xml(int index, ERL_NIF_TERM char_data,  setup_
 	if (!is_prepare_ || index < 1 || index > param_count_) {
 		return false;
 	}
-	if(enif_is_atom(env_,char_data) && enif_compare(sybdrv_atoms.undefined,char_data)){
+	if(enif_is_atom(env_,char_data) && enif_compare(make_atom(env_,"undefined"),char_data)){
 		return set_null(index);
 	}
 	unsigned int size;
@@ -1434,7 +1453,7 @@ bool SybStatement::decode_and_set_date(int index, ERL_NIF_TERM data,  setup_call
 	if (!is_prepare_ || index < 1 || index > param_count_) {
 		return false;
 	}
-	if(enif_is_atom(env_,data) && enif_compare(sybdrv_atoms.undefined,data)){
+	if(enif_is_atom(env_,data) && enif_compare(make_atom(env_,"undefined"),data)){
 		return set_null(index);
 	}
 	
@@ -1487,7 +1506,7 @@ bool SybStatement::decode_and_set_time(int index, ERL_NIF_TERM data,  setup_call
 	if (!is_prepare_ || index < 1 || index > param_count_) {
 		return false;
 	}
-	if(enif_is_atom(env_,data) && enif_compare(sybdrv_atoms.undefined,data)){
+	if(enif_is_atom(env_,data) && enif_compare(make_atom(env_,"undefined"),data)){
 		return set_null(index);
 	}
 	
@@ -1542,7 +1561,7 @@ bool SybStatement::decode_and_set_datetime(int index, ERL_NIF_TERM data,  setup_
 		return false;
 	}
 	if(enif_is_atom(env_,data)){
-		if(enif_compare(sybdrv_atoms.undefined,data)){
+		if(enif_compare(make_atom(env_,"undefined"),data)){
 			return set_null(index);
 		}
 	}
@@ -1630,7 +1649,7 @@ bool SybStatement::decode_and_set_tinyint(int index, ERL_NIF_TERM data,  setup_c
 	if (!is_prepare_ || index < 1 || index > param_count_) {
 		return false;
 	}
-	if(enif_is_atom(env_,data) && enif_compare(sybdrv_atoms.undefined,data)){
+	if(enif_is_atom(env_,data) && enif_compare(make_atom(env_,"undefined"),data)){
 		return set_null(index);
 	}
 	
@@ -1653,7 +1672,7 @@ bool SybStatement::decode_and_set_smallint(int index, ERL_NIF_TERM data,  setup_
 	if (!is_prepare_ || index < 1 || index > param_count_) {
 		return false;
 	}
-	if(enif_is_atom(env_,data) && enif_compare(sybdrv_atoms.undefined,data)){
+	if(enif_is_atom(env_,data) && enif_compare(make_atom(env_,"undefined"),data)){
 		return set_null(index);
 	}
 	
@@ -1677,7 +1696,7 @@ bool SybStatement::decode_and_set_real(int index, ERL_NIF_TERM data,  setup_call
 	if (!is_prepare_ || index < 1 || index > param_count_) {
 		return false;
 	}
-	if(enif_is_atom(env_,data) && enif_compare(sybdrv_atoms.undefined,data)){
+	if(enif_is_atom(env_,data) && enif_compare(make_atom(env_,"undefined"),data)){
 		return set_null(index);
 	}
 	
@@ -1698,7 +1717,7 @@ bool SybStatement::decode_and_set_int(int index, ERL_NIF_TERM data,  setup_callb
 	if (!is_prepare_ || index < 1 || index > param_count_) {
 		return false;
 	}
-	if(enif_is_atom(env_,data) && enif_compare(sybdrv_atoms.undefined,data)){
+	if(enif_is_atom(env_,data) && enif_compare(make_atom(env_,"undefined"),data)){
 		return set_null(index);
 	}
 	
@@ -1718,7 +1737,7 @@ bool SybStatement::decode_and_set_long(int index, ERL_NIF_TERM data,  setup_call
 	if (!is_prepare_ || index < 1 || index > param_count_) {
 		return false;
 	}
-	if(enif_is_atom(env_,data) && enif_compare(sybdrv_atoms.undefined,data)){
+	if(enif_is_atom(env_,data) && enif_compare(make_atom(env_,"undefined"),data)){
 		return set_null(index);
 	}
 	long l;
@@ -1735,7 +1754,7 @@ bool SybStatement::decode_and_set_numeric(int index,ERL_NIF_TERM data,  setup_ca
 	if (!is_prepare_ || index < 1 || index > param_count_) {
 		return false;
 	}
-	if(enif_is_atom(env_,data) && enif_compare(sybdrv_atoms.undefined,data)){
+	if(enif_is_atom(env_,data) && enif_compare(make_atom(env_,"undefined"),data)){
 		return set_null(index);
 	}
 	CS_CONTEXT* context;

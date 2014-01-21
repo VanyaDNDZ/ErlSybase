@@ -76,6 +76,8 @@ static ERL_NIF_TERM execute_batch(ErlNifEnv* env,int argc,const ERL_NIF_TERM arg
 	if(!sybdrv_statement_handle->statement->set_params_batch(argv[1])){
 		return sybdrv_atoms.error;
 	}
+	ERL_NIF_TERM* result = (ERL_NIF_TERM*)malloc(sizeof(ERL_NIF_TERM));
+	sybdrv_statement_handle->statement->handle_sql_result(&result);
 	return sybdrv_atoms.ok;
 }
 
@@ -166,7 +168,6 @@ static ERL_NIF_TERM execute(ErlNifEnv* env, int argc,
 	if (enif_is_empty_list(env, argv[2])) {
 		stmt = sybdrv_con_handle->connection->create_statement(sql);
 		if (stmt->execute_sql(&result)) {
-			SysLogger::info("1");
 			return enif_make_tuple2(env, sybdrv_atoms.ok,*result);
 		} else {
 			return enif_make_tuple2(env, sybdrv_atoms.error,

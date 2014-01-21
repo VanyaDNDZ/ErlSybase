@@ -31,4 +31,10 @@ static struct  {
 typedef struct sybdrv_con sybdrv_con;
 
 
-
+inline ERL_NIF_TERM make_atom(ErlNifEnv* env,const char* atom_str){
+	ERL_NIF_TERM atom;
+	if(!enif_make_existing_atom(env,atom_str,&atom,ERL_NIF_LATIN1)){
+		atom = enif_make_atom(env,atom_str);
+	}
+	return atom;
+}

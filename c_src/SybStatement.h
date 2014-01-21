@@ -13,8 +13,6 @@
 #include "erl_nif.h"
 #include "SybUtils.h"
 
-
-
 /** @brief Sybase prepare statement class.
  */
 class SybStatement {
@@ -25,6 +23,14 @@ class SybStatement {
         CS_INT valuelen;
         CS_SMALLINT indicator;
     } COLUMN_DATA;
+
+    typedef struct _batch_column_data
+    {
+        CS_DATAFMT* dfmt;
+        CS_VOID *value;
+        CS_INT *valuelen;
+        CS_SMALLINT indicator;
+    } BATCH_COLUMN_DATA;
 
     typedef bool (SybStatement::*setup_callback)(CS_DATAFMT* dfmt, CS_VOID* data, CS_INT len);
 
@@ -428,12 +434,16 @@ public:
             return retcode;
         }
 
+    CS_RETCODE handle_sql_result(ERL_NIF_TERM** result);
+    
     bool decode_and_set_param( int index, ERL_NIF_TERM data,bool is_bulk = false)
         {
             setup_callback callback;
             
             if(!is_bulk){
                     callback= &SybStatement::set_param;
+            }else{
+                callback=&SybStatement::set_batch_param;
             }
             
             bool retcode;
@@ -517,7 +527,7 @@ private:
     CS_RETCODE handle_command_result();
     CS_RETCODE handle_command_result(CS_COMMAND *cmd);
 
-    CS_RETCODE handle_sql_result(ERL_NIF_TERM** result);
+    
 
     CS_RETCODE process_describe_reslut();
 
@@ -549,6 +559,8 @@ private:
     CS_RETCODE compute_info(CS_INT index, CS_DATAFMT *data_fmt);
     
     bool set_param(CS_DATAFMT* dfmt, CS_VOID* data, CS_INT len);
+
+    bool set_batch_param(CS_DATAFMT* dfmt, CS_VOID* data, CS_INT len);
 
     ERL_NIF_TERM encode_binary( CS_DATAFMT* dfmt, CS_BINARY* v, CS_INT len);
 
@@ -617,23 +629,41 @@ private:
     ERL_NIF_TERM encode_overflow();
 
     ERL_NIF_TERM encode_null();
+    
     bool decode_and_set_char(int index, ERL_NIF_TERM char_data,setup_callback);
+    
     bool decode_and_set_binary(int index, ERL_NIF_TERM data,  setup_callback callback);
+    
     bool decode_and_set_longbinary(int index, ERL_NIF_TERM data,  setup_callback callback);
+    
     bool decode_and_set_varbinary(int index, ERL_NIF_TERM data,  setup_callback callback);
+    
     bool decode_and_set_bit(int index, ERL_NIF_TERM data,  setup_callback callback);
+    
     bool decode_and_set_longchar(int index, ERL_NIF_TERM char_data,  setup_callback callback);
+    
     bool decode_and_set_varchar(int index, ERL_NIF_TERM char_data,  setup_callback callback);
+    
     bool decode_and_set_unichar(int index, ERL_NIF_TERM char_data,  setup_callback callback);
+    
     bool decode_and_set_xml(int index, ERL_NIF_TERM char_data,  setup_callback callback);
+    
     bool decode_and_set_date(int index, ERL_NIF_TERM data,  setup_callback callback);
+    
     bool decode_and_set_time(int index, ERL_NIF_TERM data,  setup_callback callback);
+    
     bool decode_and_set_datetime(int index, ERL_NIF_TERM data,  setup_callback callback);
+    
     bool decode_and_set_numeric(int index,ERL_NIF_TERM data,  setup_callback callback);
+    
     bool decode_and_set_tinyint(int index, ERL_NIF_TERM data,  setup_callback callback);
+    
     bool decode_and_set_smallint(int index, ERL_NIF_TERM data,  setup_callback callback);
+    
     bool decode_and_set_int(int index, ERL_NIF_TERM data,  setup_callback callback);
+    
     bool decode_and_set_long (int index, ERL_NIF_TERM data,  setup_callback callback);
+    
     bool decode_and_set_real (int index, ERL_NIF_TERM data,  setup_callback callback);
 };
 
