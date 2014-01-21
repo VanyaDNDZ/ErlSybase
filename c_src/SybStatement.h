@@ -349,75 +349,23 @@ public:
      *  @return The number of affected rows.
      */
     unsigned int get_affected_rows();
+    
 
-    bool set_params(ERL_NIF_TERM list){
-        unsigned int list_index=1;
-        unsigned int list_size;
-        ERL_NIF_TERM list_head,list_tail;
-        enif_get_list_length(env_,list,&list_size);
-        while(list_size>0 && list_size>=list_index && enif_get_list_cell(env_,list,&list_head,&list_tail)) {
-            if(!decode_and_set_param(list_index,list_head,false)){
-                return false;
-            }
-            list = list_tail;
-            ++list_index;
-        }
-        
-        return true;
-    }
+    /**@brief set List params
+    *  @return true if succes bind
+    */
+    bool set_params(ERL_NIF_TERM list);
 
-    bool batch_initial_bind(int column_count){
-        ct_dynamic(cmd_, CS_EXECUTE, id_, CS_NULLTERM, NULL,
-        CS_UNUSED);
-        for (int i = 0; i < column_count; ++i)
-        {
-            CS_DATAFMT* dfmt = desc_dfmt_ + i;
-            if(!ct_setparam(cmd_, dfmt, NULL, NULL, NULL)){
-                return false;
-            }
-        }
-        return true;
-    }
 
-    bool set_params_batch(ERL_NIF_TERM list){
-        unsigned int list_index=1,rows_index=1;
-        unsigned int list_size,rows;
-        ERL_NIF_TERM rows_head,rows_tail,list_head,list_tail;
-        enif_get_list_length(env_,list,&rows);
-        while(rows>0 && rows>=rows_index && enif_get_list_cell(env_,list,&rows_head,&rows_tail)){
-            
-            if (rows_index==1){
-                if(!enif_get_list_length(env_,rows_head,&list_size)){
-                    return false;
-                }
+    /**@brief set NULL for all columns
+    *  @return true if succes bind
+    */
+    bool batch_initial_bind(int column_count);
 
-                if(!batch_initial_bind(list_size)){
-                    return false;   
-                }
-
-            }
-
-            
-            while(list_size>0 && list_size>=list_index && enif_get_list_cell(env_,rows_head,&list_head,&list_tail)) {
-            
-                if(!decode_and_set_param(list_index,list_head,true)){
-                    return false;
-                }
-            
-                rows_head = list_tail;
-            
-                ++list_index;
-            }
-            list=rows_tail;
-            ++rows_index;
-        }
-        
-        if(!ct_send(cmd_)){
-            return false;
-        }
-        
-        return true;
-    }
+    /**@brief set ListOfList params
+    *  @return true if succes bind
+    */
+    bool set_params_batch(ERL_NIF_TERM list);
 
     bool set_param( int index, unsigned char data)
         {
