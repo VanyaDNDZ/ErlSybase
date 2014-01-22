@@ -549,13 +549,13 @@ bool SybStatement::set_batch_param(CS_DATAFMT* dfmt, CS_VOID* data, CS_INT len) 
 bool SybStatement::batch_initial_bind(int column_count){
         ct_dynamic(cmd_, CS_EXECUTE, id_, CS_NULLTERM, NULL,
         CS_UNUSED);
-        for (int i = 0; i < column_count; ++i)
+        /*for (int i = 0; i < column_count; ++i)
         {
             CS_DATAFMT* dfmt = desc_dfmt_ + i;
             if(!ct_setparam(cmd_, dfmt, NULL, NULL, NULL)){
                 return false;
             }
-        }
+        }*/
         return true;
     }
 
@@ -579,36 +579,48 @@ bool SybStatement::set_params_batch(ERL_NIF_TERM list){
         unsigned int list_index=1,rows_index=1;
         unsigned int list_size,rows;
         ERL_NIF_TERM rows_head,rows_tail,list_head,list_tail;
+        BATCH_COLUMN_DATA* columns;
         enif_get_list_length(env_,list,&rows);
+        CS_INT		nullterm = CS_NULLTERM;
         while(rows>0 && rows>=rows_index && enif_get_list_cell(env_,list,&rows_head,&rows_tail)){
-            
+            SysLogger::info("1");
             if (rows_index==1){
+                SysLogger::info("2");
                 if(!enif_get_list_length(env_,rows_head,&list_size)){
                     return false;
                 }
-
+                SysLogger::info("3");
                 if(!batch_initial_bind(list_size)){
                     return false;   
                 }
-
+                SysLogger::info("4");
+                columns = new BATCH_COLUMN_DATA[list_size*rows];
             }
 
             
             while(list_size>0 && list_size>=list_index && enif_get_list_cell(env_,rows_head,&list_head,&list_tail)) {
             
-                if(!decode_and_set_param(list_index,list_head,true)){
+            	SysLogger::info("5");
+                if(!decode_char(columns+(rows-2+list_index),list_index,list_head)){
+                    
                     return false;
+                }
+                SysLogger::info("6");
+                if(!ct_param(cmd_,columns[rows-2+list_index].dfmt, columns[rows-2+list_index].value, CS_NULLTERM,0)){
+                	return false;	
                 }
             
                 rows_head = list_tail;
             
                 ++list_index;
             }
-            ct_send_params(cmd_, CS_UNUSED);
+            SysLogger::info("7");
+            ct_send(cmd_);
+            //ct_send_params(cmd_, CS_UNUSED);
             list=rows_tail;
             ++rows_index;
         }
-        
+        SysLogger::info("8");
         if(!ct_send(cmd_)){
             return false;
         }
@@ -1088,7 +1100,6 @@ ERL_NIF_TERM SybStatement::encode_overflow() {
 ERL_NIF_TERM SybStatement::encode_column_data(COLUMN_DATA *column) {
 	CS_DATAFMT *dfmt = &column->dfmt;
 	ERL_NIF_TERM encoded;
-	SysLogger::info("type=%i",dfmt->datatype);
 	if (column->indicator == 0) {
 		switch ((int)dfmt->datatype) {
 
@@ -1340,12 +1351,34 @@ bool SybStatement::decode_and_set_bit(int index, ERL_NIF_TERM data,  setup_callb
 }
 
 
+bool SybStatement::decode_char(BATCH_COLUMN_DATA* column,int index,ERL_NIF_TERM data){
+	if(enif_is_atom(env_,data) && enif_compare(make_atom(env_,"undefined"),data)){
+		column->indicator = -1;
+		return true;
+	}
+	column->dfmt = 	desc_dfmt_ + (index - 1);
+
+	unsigned int size;
+	
+	enif_get_list_length(env_,data,&size);
+	
+	char* str_buf = (char*) malloc((size+1)*sizeof(CS_CHAR));
+	
+	if(!enif_get_string(env_,data,str_buf,size+1,ERL_NIF_LATIN1)){
+		column->indicator = -2;
+		return false;
+	}
+	column->value = str_buf;
+	return true;
+}
+
+
 bool SybStatement::decode_and_set_char(int index, ERL_NIF_TERM char_data,  setup_callback callback) {
 	if (!is_prepare_ || index < 1 || index > param_count_) {
 		return false;
 	}
 
-	if(enif_is_atom(env_,char_data) && enif_compare(make_atom(env_,"undefined"),char_data)){
+	/*if(enif_is_atom(env_,char_data) && enif_compare(make_atom(env_,"undefined"),char_data)){
 		return set_null(index);
 	}
 
@@ -1360,8 +1393,20 @@ bool SybStatement::decode_and_set_char(int index, ERL_NIF_TERM char_data,  setup
 	}
 
 	CS_DATAFMT* dfmt = desc_dfmt_ + (index - 1);
-	
-	return (*this.*callback)(dfmt, (CS_VOID*) str_buf, CS_NULLTERM);
+	return (*this.*callback)(dfmt, (CS_VOID*) str_buf, CS_NULLTERM);*/
+	SysLogger::info("decode_and_set_char");
+	BATCH_COLUMN_DATA* column = new BATCH_COLUMN_DATA();
+
+	if(!decode_char(column,index,char_data) || column->indicator==-2){
+		return false;
+	}
+	if(column->indicator==-1){
+		return set_null(index);
+	}
+
+	int retcode = (*this.*callback)(column->dfmt, (CS_VOID*)column->value, CS_NULLTERM);
+	delete column;
+	return retcode;
 }
 
 bool SybStatement::decode_and_set_longchar(int index, ERL_NIF_TERM char_data,  setup_callback callback) {

@@ -210,7 +210,7 @@ static ERL_NIF_TERM execute(ErlNifEnv* env, int argc,
 static ERL_NIF_TERM ret_nif(ErlNifEnv* env,bool result_state,ERL_NIF_TERM* result, sybdrv_con* sybdrv_con_handle,SybStatement* stmt){
 
 	ERL_NIF_TERM out = *result;
-	if (stmt && sybdrv_con_handle){
+	if (stmt){
 		stmt->prepare_release();	
 		delete stmt;
 	}

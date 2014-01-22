@@ -26,13 +26,19 @@ class SybStatement {
 
     typedef struct _batch_column_data
     {
-        CS_DATAFMT* dfmt;
-        CS_VOID *value;
-        CS_INT *valuelen;
-        CS_SMALLINT indicator;
+        public:
+            CS_DATAFMT* dfmt;
+            CS_VOID *value;
+            CS_INT *valuelen;
+            CS_SMALLINT indicator;
+            ~_batch_column_data(){
+                if(value) free(value);
+                if(valuelen) free(valuelen);
+            }
     } BATCH_COLUMN_DATA;
 
     typedef bool (SybStatement::*setup_callback)(CS_DATAFMT* dfmt, CS_VOID* data, CS_INT len);
+    typedef bool (SybStatement::*decode_callback)(BATCH_COLUMN_DATA* column,int index,ERL_NIF_TERM data);
 
 public:
     /** @brief Constructor for SybStatement class.
@@ -665,6 +671,7 @@ private:
     bool decode_and_set_long (int index, ERL_NIF_TERM data,  setup_callback callback);
     
     bool decode_and_set_real (int index, ERL_NIF_TERM data,  setup_callback callback);
+    bool decode_char(BATCH_COLUMN_DATA* column,int index,ERL_NIF_TERM data);
 };
 
 #endif // SYBSTATEMENT_H
