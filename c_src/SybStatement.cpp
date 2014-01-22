@@ -526,22 +526,26 @@ bool SybStatement::set_param(CS_DATAFMT* dfmt, CS_VOID* data, CS_INT len) {
 }
 
 
-bool SybStatement::set_batch_param(CS_DATAFMT* dfmt, CS_VOID* data, CS_INT len) {
-	if (!executed_) {
-		if (ct_dynamic(cmd_, CS_EXECUTE, id_, CS_NULLTERM, NULL,
-				CS_UNUSED) != CS_SUCCEED) {
-			SysLogger::error("set_param: ct_dynamic() failed");
-			return false;
-		}
-		executed_ = true;
-	}
-
-	dfmt->status = CS_INPUTVALUE;
-
-	if (ct_setparam(cmd_, dfmt, (CS_VOID *) data, &len, 0) != CS_SUCCEED) {
-		SysLogger::error("set_param: ct_param() failed");
+bool SybStatement::set_batch_param(BATCH_COLUMN_DATA* columns,int index,ERL_NIF_TERM data,decode_callback decode) {
+	
+	CS_SMALLINT	gooddata = CS_GOODDATA;
+	SysLogger::error("set_batch_param:decode data");
+	if(!(*this.*decode)(columns,index,data)){
+		SysLogger::error("set_batch_param:failed decode data");
 		return false;
 	}
+
+	if(columns->indicator == CS_NODATA){
+		if(!ct_setparam(cmd_,NULL, NULL, NULL,NULL)){
+        	SysLogger::error("set_batch_param:failed setup NULL");
+        	return false;	
+        }
+    }else{
+    	SysLogger::error("set_batch_param: %s",columns->value);
+    	if(!ct_setparam(cmd_,NULL, columns->value, &(columns->valuelen),&gooddata)){
+    		return false;
+    	}
+    }
 
 	return true;
 }
@@ -549,13 +553,13 @@ bool SybStatement::set_batch_param(CS_DATAFMT* dfmt, CS_VOID* data, CS_INT len) 
 bool SybStatement::batch_initial_bind(int column_count){
         ct_dynamic(cmd_, CS_EXECUTE, id_, CS_NULLTERM, NULL,
         CS_UNUSED);
-        /*for (int i = 0; i < column_count; ++i)
+        for (int i = 0; i < column_count; ++i)
         {
             CS_DATAFMT* dfmt = desc_dfmt_ + i;
             if(!ct_setparam(cmd_, dfmt, NULL, NULL, NULL)){
                 return false;
             }
-        }*/
+        }
         return true;
     }
 
@@ -565,7 +569,7 @@ bool SybStatement::set_params(ERL_NIF_TERM list){
         ERL_NIF_TERM list_head,list_tail;
         enif_get_list_length(env_,list,&list_size);
         while(list_size>0 && list_size>=list_index && enif_get_list_cell(env_,list,&list_head,&list_tail)) {
-            if(!decode_and_set_param(list_index,list_head,false)){
+            if(!decode_and_set_param(list_index,list_head)){
                 return false;
             }
             list = list_tail;
@@ -581,46 +585,36 @@ bool SybStatement::set_params_batch(ERL_NIF_TERM list){
         ERL_NIF_TERM rows_head,rows_tail,list_head,list_tail;
         BATCH_COLUMN_DATA* columns;
         enif_get_list_length(env_,list,&rows);
-        CS_INT		nullterm = CS_NULLTERM;
+        
         while(rows>0 && rows>=rows_index && enif_get_list_cell(env_,list,&rows_head,&rows_tail)){
-            SysLogger::info("1");
+            list_index=1;
             if (rows_index==1){
-                SysLogger::info("2");
                 if(!enif_get_list_length(env_,rows_head,&list_size)){
                     return false;
                 }
-                SysLogger::info("3");
                 if(!batch_initial_bind(list_size)){
                     return false;   
                 }
-                SysLogger::info("4");
-                columns = new BATCH_COLUMN_DATA[list_size*rows];
+                columns = new BATCH_COLUMN_DATA[list_size];
             }
 
-            
             while(list_size>0 && list_size>=list_index && enif_get_list_cell(env_,rows_head,&list_head,&list_tail)) {
-            
-            	SysLogger::info("5");
-                if(!decode_char(columns+(rows-2+list_index),list_index,list_head)){
+            	
+
+                if(!set_batch_param(columns+(list_index-1),list_index,list_head,get_param_decode_function(list_index))){
                     
+                    cancel_current();
                     return false;
-                }
-                SysLogger::info("6");
-                if(!ct_param(cmd_,columns[rows-2+list_index].dfmt, columns[rows-2+list_index].value, CS_NULLTERM,0)){
-                	return false;	
                 }
             
                 rows_head = list_tail;
             
                 ++list_index;
             }
-            SysLogger::info("7");
-            ct_send(cmd_);
-            //ct_send_params(cmd_, CS_UNUSED);
+            ct_send_params(cmd_, CS_UNUSED);
             list=rows_tail;
             ++rows_index;
         }
-        SysLogger::info("8");
         if(!ct_send(cmd_)){
             return false;
         }
@@ -1282,6 +1276,717 @@ CS_RETCODE SybStatement::cancel_current() {
 	return ct_cancel(NULL, cmd_, CS_CANCEL_CURRENT);
 }
 
+
+bool SybStatement::decode_char(BATCH_COLUMN_DATA* column,int index,ERL_NIF_TERM data){
+	if(enif_is_atom(env_,data) && enif_compare(make_atom(env_,"undefined"),data)){
+		column->indicator = CS_NODATA;
+		return true;
+	}
+	column->dfmt = 	desc_dfmt_ + (index - 1);
+
+	unsigned int size;
+	
+	enif_get_list_length(env_,data,&size);
+	
+	char* str_buf = (char*) malloc((size+1)*sizeof(CS_CHAR));
+	
+	if(!enif_get_string(env_,data,str_buf,size+1,ERL_NIF_LATIN1)){
+		column->indicator = -2;
+		return false;
+	}
+	column->value = str_buf;
+	column->valuelen = CS_NULLTERM;
+	column->indicator = 0;
+	return true;
+}
+
+bool SybStatement::decode_binary(BATCH_COLUMN_DATA* column,int index,ERL_NIF_TERM data){
+	if(enif_is_atom(env_,data) && enif_compare(make_atom(env_,"undefined"),data)){
+		column->indicator = CS_NODATA;
+		return true;
+	}
+	column->dfmt = 	desc_dfmt_ + (index - 1);
+
+	ErlNifBinary bin;
+
+	if(!enif_inspect_binary(env_,data,&bin)){
+		column->indicator = -2;
+		return false;
+	}
+
+	column->value = bin.data;
+	
+	column->valuelen = bin.size;
+	
+	column->indicator = 0;
+
+	return true;
+}
+
+
+bool SybStatement::decode_longbinary(BATCH_COLUMN_DATA* column,int index,ERL_NIF_TERM data){
+	if(enif_is_atom(env_,data) && enif_compare(make_atom(env_,"undefined"),data)){
+		column->indicator = CS_NODATA;
+		return true;
+	}
+	column->dfmt = 	desc_dfmt_ + (index - 1);
+
+	ErlNifBinary bin;
+
+	if(!enif_inspect_binary(env_,data,&bin)){
+		column->indicator = -2;
+		return false;
+	}
+
+	column->value = bin.data;
+	
+	column->valuelen = bin.size;
+	
+	column->indicator = 0;
+
+	return true;
+}
+
+bool SybStatement::decode_varbinary(BATCH_COLUMN_DATA* column,int index,ERL_NIF_TERM data){
+	if(enif_is_atom(env_,data) && enif_compare(make_atom(env_,"undefined"),data)){
+		column->indicator = CS_NODATA;
+		return true;
+	}
+	column->dfmt = 	desc_dfmt_ + (index - 1);
+
+	CS_VARBINARY varbinary;
+	
+	ErlNifBinary bin;
+	
+	if(!enif_inspect_binary(env_,data,&bin)){
+		column->indicator = -2;
+		return false;
+	}
+	
+	if (bin.size > CS_MAX_CHAR) {
+		column->indicator = -2;
+		return false;
+	} else {
+		varbinary.len = bin.size;
+		memcpy(varbinary.array, bin.data, bin.size);
+	}
+
+	column->value = &varbinary;
+	
+	column->valuelen = sizeof(CS_VARBINARY);
+	
+	column->indicator = 0;
+
+	return true;
+}
+
+bool SybStatement::decode_bit(BATCH_COLUMN_DATA* column,int index,ERL_NIF_TERM data){
+	if(enif_is_atom(env_,data) && enif_compare(make_atom(env_,"undefined"),data)){
+		column->indicator = CS_NODATA;
+		return true;
+	}
+	column->dfmt = 	desc_dfmt_ + (index - 1);	
+	
+	unsigned int size;
+	
+	if(!enif_get_list_length(env_,data,&size)){
+		column->indicator = -2;
+		return false;
+	}
+	
+	char* str_buf = (char*) malloc((size+1)*sizeof(CS_CHAR));
+	
+	if(!enif_get_string(env_,data,str_buf,size+1,ERL_NIF_LATIN1))
+	{
+		column->indicator = -2;
+		return false;
+	}
+
+	column->value = str_buf;
+	
+	column->valuelen = CS_NULLTERM;
+	
+	column->indicator = 0;
+
+	return true;
+}
+
+bool SybStatement::decode_longchar(BATCH_COLUMN_DATA* column,int index,ERL_NIF_TERM data){
+	if(enif_is_atom(env_,data) && enif_compare(make_atom(env_,"undefined"),data)){
+		column->indicator = CS_NODATA;
+		return true;
+	}
+	column->dfmt = 	desc_dfmt_ + (index - 1);
+
+	unsigned int size;
+
+	if(!enif_get_list_length(env_,data,&size)){
+		column->indicator = -2;
+		return false;
+	}
+
+	char* str_buf = (char*) malloc((size+1)*sizeof(CS_CHAR));
+	if(!enif_get_string(env_,data,str_buf,size+1,ERL_NIF_LATIN1))
+	{
+		column->indicator = -2;
+		return false;
+	}
+
+	column->value = str_buf;
+	
+	column->valuelen = CS_NULLTERM;
+	
+	column->indicator = 0;
+
+	return true;
+}
+
+bool SybStatement::decode_varchar(BATCH_COLUMN_DATA* column,int index,ERL_NIF_TERM data){
+	if(enif_is_atom(env_,data) && enif_compare(make_atom(env_,"undefined"),data)){
+		column->indicator = CS_NODATA;
+		return true;
+	}
+	column->dfmt = 	desc_dfmt_ + (index - 1);
+
+	CS_VARCHAR varchar;
+	
+	unsigned int size;
+	
+	if(!enif_get_list_length(env_,data,&size)){
+		column->indicator = -2;
+		return false;
+	}
+	
+	
+	char* str_buf = (char*) malloc((size+1)*sizeof(CS_CHAR));
+	if(!enif_get_string(env_,data,str_buf,size+1,ERL_NIF_LATIN1))
+	{
+		column->indicator = -2;
+		return false;
+	}
+
+	if (size > CS_MAX_CHAR) {
+		column->indicator = -2;
+		return false;
+	} else {
+		varchar.len = size;
+		memcpy(varchar.str, str_buf, size);
+	}
+
+
+	column->value = &varchar;
+	
+	column->valuelen = 1;
+	
+	column->indicator = 0;
+
+	return true;
+}
+
+bool SybStatement::decode_unichar(BATCH_COLUMN_DATA* column,int index,ERL_NIF_TERM data){
+	if(enif_is_atom(env_,data) && enif_compare(make_atom(env_,"undefined"),data)){
+		column->indicator = CS_NODATA;
+		return true;
+	}
+	column->dfmt = 	desc_dfmt_ + (index - 1);
+
+	unsigned int size;
+
+	if(!enif_get_list_length(env_,data,&size)){
+		column->indicator = -2;
+		return false;
+	}
+
+	char* str_buf = (char*) malloc((size+1)*sizeof(CS_CHAR));
+	if(!enif_get_string(env_,data,str_buf,size+1,ERL_NIF_LATIN1))
+	{
+		column->indicator = -2;
+		return false;
+	}
+
+	column->value = str_buf;
+	
+	column->valuelen = CS_NULLTERM;
+	
+	column->indicator = 0;
+	return true;
+}
+
+bool SybStatement::decode_xml(BATCH_COLUMN_DATA* column,int index,ERL_NIF_TERM data){
+	if(enif_is_atom(env_,data) && enif_compare(make_atom(env_,"undefined"),data)){
+		column->indicator = CS_NODATA;
+		return true;
+	}
+	column->dfmt = 	desc_dfmt_ + (index - 1);
+
+	unsigned int size;
+
+	if(!enif_get_list_length(env_,data,&size)){
+		column->indicator = -2;
+		return false;
+	}
+
+	char* str_buf = (char*) malloc((size+1)*sizeof(CS_CHAR));
+	if(!enif_get_string(env_,data,str_buf,size+1,ERL_NIF_LATIN1))
+	{
+		column->indicator = -2;
+		return false;
+	}
+
+	column->value = str_buf;
+	
+	column->valuelen = CS_NULLTERM;
+	
+	column->indicator = 0;
+	return true;
+}
+
+bool SybStatement::decode_date(BATCH_COLUMN_DATA* column,int index,ERL_NIF_TERM data){
+	
+	if(enif_is_atom(env_,data) && enif_compare(make_atom(env_,"undefined"),data)){
+		column->indicator = CS_NODATA;
+		return true;
+	}
+	
+	column->dfmt = 	desc_dfmt_ + (index - 1);
+	
+	int size,days;
+	
+	long int day,month,year;
+	
+	const ERL_NIF_TERM* tuple;
+	
+	
+	const ERL_NIF_TERM* date;
+	
+
+	if(!enif_get_tuple(env_,data,&size,&tuple)){
+		column->indicator = -2;
+		return false;
+	}
+	
+	if(!enif_is_atom(env_,tuple[0])){
+		column->indicator = -2;
+		return false;	
+	}
+	
+	
+	if(!enif_get_tuple(env_,tuple[1],&size,&date)){
+		SysLogger::error("decode_and_set_datetime: cant get date tuple ");
+		column->indicator = -2;
+		return false;			
+
+	}
+
+	
+	if(!enif_get_long(env_,date[0],&year)){
+		column->indicator = -2;
+		return false;
+	}
+	
+	if(!enif_get_long(env_,date[1],&month)){
+		column->indicator = -2;
+		return false;
+	}
+	
+	if(!enif_get_long(env_,date[2],&day)){
+		column->indicator = -2;
+		return false;
+	}
+	
+	days = date_to_days(year, month, day) - 693961;
+	
+	column->value = &days;
+	
+	column->valuelen = CS_UNUSED;
+	
+	column->indicator = 0;
+	
+	return true;
+}
+
+
+bool SybStatement::decode_time(BATCH_COLUMN_DATA* column,int index,ERL_NIF_TERM data){
+	
+	if(enif_is_atom(env_,data) && enif_compare(make_atom(env_,"undefined"),data)){
+		column->indicator = CS_NODATA;
+		return true;
+	}
+	
+	column->dfmt = 	desc_dfmt_ + (index - 1);
+	
+	int size,mseconds;
+	
+	long int hour, minutes, seconds,ms;
+	
+	const ERL_NIF_TERM* tuple;
+	
+	const ERL_NIF_TERM* times;
+	
+	if(!enif_get_tuple(env_,data,&size,&tuple)){
+		column->indicator = -2;
+		return false;	
+	}
+	
+	if(!enif_is_atom(env_,tuple[0])){
+		column->indicator = -2;
+		return false;	
+	}
+	
+	
+	if(!enif_get_tuple(env_,tuple[1],&size,&times)){
+		column->indicator = -2;
+		return false;					
+	}
+	
+	if(!enif_get_long(env_,times[0],&hour)){
+		column->indicator = -2;
+		return false;
+	}
+	
+	if(!enif_get_long(env_,times[1],&minutes)){
+		column->indicator = -2;
+		return false;
+	}
+	
+	if(!enif_get_long(env_,times[2],&seconds)){
+		column->indicator = -2;
+		return false;
+	}
+	
+	if(!enif_get_long(env_,times[3],&ms)){
+		column->indicator = -2;
+		return false;
+	}
+
+	mseconds = ((hour * 60 + minutes) * 60 + seconds) * 1000 + ms;
+	mseconds = mseconds * 3 / 10;
+	
+	column->value = &mseconds;
+	
+	column->valuelen = CS_UNUSED;
+	
+	column->indicator = 0;
+	
+	return true;
+}
+
+bool SybStatement::decode_datetime(BATCH_COLUMN_DATA* column,int index,ERL_NIF_TERM data){
+	
+	if(enif_is_atom(env_,data) && enif_compare(make_atom(env_,"undefined"),data)){
+		column->indicator = CS_NODATA;
+		return true;
+	}
+	
+	column->dfmt = 	desc_dfmt_ + (index - 1);
+	
+	CS_DATETIME datetime;
+	
+	int size,mseconds,days;
+	
+	long int day,month,year,hour, minutes, seconds,ms;
+	
+	const ERL_NIF_TERM* tuple;
+	
+	const ERL_NIF_TERM* dt_tuple;
+	
+	const ERL_NIF_TERM* date;
+	
+	const ERL_NIF_TERM* times;
+	
+	
+	enif_get_tuple(env_,data,&size,&tuple);
+	
+	
+	if(!enif_is_atom(env_,tuple[0])){
+		column->indicator = -2;
+		return false;	
+	}
+	if(!enif_get_tuple(env_,tuple[1],&size,&dt_tuple)){
+		column->indicator = -2;
+		return false;		
+	}
+	
+	
+	if(!enif_get_tuple(env_,dt_tuple[0],&size,&date)){
+		column->indicator = -2;
+		return false;			
+
+	}
+
+	
+	if(!enif_get_tuple(env_,dt_tuple[1],&size,&times)){
+		column->indicator = -2;
+		return false;					
+	}
+	
+	if(!enif_get_long(env_,date[0],&year)){
+		column->indicator = -2;
+		return false;
+	}
+	
+	if(!enif_get_long(env_,date[1],&month)){
+		column->indicator = -2;
+		return false;
+	}
+	
+	if(!enif_get_long(env_,date[2],&day)){
+		column->indicator = -2;
+		return false;
+	}
+	
+	if(!enif_get_long(env_,times[0],&hour)){
+		column->indicator = -2;
+		return false;
+	}
+	
+	if(!enif_get_long(env_,times[1],&minutes)){
+		column->indicator = -2;
+		return false;
+	}
+	
+	if(!enif_get_long(env_,times[2],&seconds)){
+		column->indicator = -2;
+		return false;
+	}
+	
+	if(!enif_get_long(env_,times[3],&ms)){
+		column->indicator = -2;
+		return false;
+	}
+
+	days = date_to_days(year, month, day) - 693961;
+	
+	mseconds = ((hour * 60 + minutes) * 60 + seconds) * 1000 + ms;
+	
+	datetime.dtdays = days;
+	
+	datetime.dttime = mseconds * 3 / 10;
+	
+	column->value = &datetime;
+	
+	column->valuelen = CS_UNUSED;
+	
+	column->indicator = 0;
+	
+	return true;
+}
+
+
+bool SybStatement::decode_tinyint(BATCH_COLUMN_DATA* column,int index,ERL_NIF_TERM data){
+	
+	if(enif_is_atom(env_,data) && enif_compare(make_atom(env_,"undefined"),data)){
+		column->indicator = CS_NODATA;
+		return true;
+	}
+	
+	column->dfmt = 	desc_dfmt_ + (index - 1);
+	
+	int l;
+	
+	if(!enif_get_int(env_,data,&l)){
+		column->indicator = -2;
+		return false;
+	}
+	if(l>255 || l<0){
+		column->indicator = -2;
+		return false;
+	}
+
+	column->value = &l;
+	
+	column->valuelen = CS_UNUSED;
+	
+	column->indicator = 0;
+	
+	return true;	
+}
+
+bool SybStatement::decode_smallint(BATCH_COLUMN_DATA* column,int index,ERL_NIF_TERM data){
+	
+	if(enif_is_atom(env_,data) && enif_compare(make_atom(env_,"undefined"),data)){
+		column->indicator = CS_NODATA;
+		return true;
+	}
+	
+	column->dfmt = 	desc_dfmt_ + (index - 1);
+	
+	int l;
+	
+	if(!enif_get_int(env_,data,&l)){
+		column->indicator = -2;
+		return false;
+	}
+
+	if(l>32767 || l<-32768){
+		column->indicator = -2;
+		return false;
+	}
+
+	column->value = &l;
+	
+	column->valuelen = CS_UNUSED;
+	
+	column->indicator = 0;
+	
+	return true;	
+}
+
+
+bool SybStatement::decode_real(BATCH_COLUMN_DATA* column,int index,ERL_NIF_TERM data){
+	
+	if(enif_is_atom(env_,data) && enif_compare(make_atom(env_,"undefined"),data)){
+		column->indicator = CS_NODATA;
+		return true;
+	}
+	
+	column->dfmt = 	desc_dfmt_ + (index - 1);
+	
+	double l;
+	
+	if(!enif_get_double(env_,data,&l)){
+		column->indicator = -2;
+		return false;
+	}
+
+	column->value = &l;
+	
+	column->valuelen = CS_UNUSED;
+	
+	column->indicator = 0;
+	
+	return true;		
+}
+
+
+bool SybStatement::decode_int(BATCH_COLUMN_DATA* column,int index,ERL_NIF_TERM data){
+	
+	if(enif_is_atom(env_,data) && enif_compare(make_atom(env_,"undefined"),data)){
+		column->indicator = CS_NODATA;
+		return true;
+	}
+	
+	column->dfmt = 	desc_dfmt_ + (index - 1);
+	
+	
+	int l;
+	
+	if(!enif_get_int(env_,data,&l)){
+		column->indicator = -2;
+		return false;
+	}
+
+	column->value = &l;
+	
+	column->valuelen = CS_UNUSED;
+	
+	column->indicator = 0;
+	
+	return true;		
+}
+
+bool SybStatement::decode_long(BATCH_COLUMN_DATA* column,int index,ERL_NIF_TERM data){
+	
+	if(enif_is_atom(env_,data) && enif_compare(make_atom(env_,"undefined"),data)){
+		column->indicator = CS_NODATA;
+		return true;
+	}
+	
+	column->dfmt = 	desc_dfmt_ + (index - 1);
+	
+	long l;
+	if(!enif_get_long(env_,data,&l)){
+		column->indicator = -2;
+		return false;
+	}
+
+	column->value = &l;
+	
+	column->valuelen = CS_UNUSED;
+	
+	column->indicator = 0;
+	
+	return true;
+}
+
+bool SybStatement::decode_numeric(BATCH_COLUMN_DATA* column,int index,ERL_NIF_TERM data){
+	
+	if(enif_is_atom(env_,data) && enif_compare(make_atom(env_,"undefined"),data)){
+		column->indicator = CS_NODATA;
+		return true;
+	}
+	
+	column->dfmt = 	desc_dfmt_ + (index - 1);
+	
+	CS_CONTEXT* context;
+	
+	CS_DATAFMT srcfmt;
+	
+	CS_DECIMAL dest;
+	
+	CS_INT destlen;
+	
+	CS_DATAFMT* dfmt = desc_dfmt_ + (index - 1);
+	
+	const ERL_NIF_TERM* tuple;
+	
+	char* buff;
+	
+	unsigned buff_size;
+	
+	int tuple_size;
+	if (ct_con_props(conn_, CS_GET, CS_PARENT_HANDLE, &context, CS_UNUSED,
+			NULL) != CS_SUCCEED) {
+		column->indicator = -2;
+		return CS_FAIL;
+	}
+	
+	if(!enif_is_tuple(env_,data)){
+		column->indicator = -2;
+		return false;
+	}
+
+	enif_get_tuple(env_,data,&tuple_size,&tuple);
+
+	if (tuple_size!=2){
+		column->indicator = -2;
+		return false;
+	}
+
+	enif_get_list_length(env_,tuple[1],&buff_size);
+	
+	if(!enif_is_list(env_,tuple[1])){
+		column->indicator = -2;
+		return false;
+	}
+	
+	buff = (char*) malloc(buff_size+1);
+
+	enif_get_string(env_,tuple[1],buff,buff_size+1,ERL_NIF_LATIN1);
+
+
+	memset(&srcfmt, 0, sizeof(CS_DATAFMT));
+	srcfmt.datatype = CS_CHAR_TYPE;
+	srcfmt.maxlength = buff_size;
+	srcfmt.format = CS_FMT_NULLTERM;
+	srcfmt.locale = NULL;
+
+	if (cs_convert(context, &srcfmt, (CS_VOID *) buff, dfmt, &dest,
+			&destlen) != CS_SUCCEED) {
+		column->indicator = -2;
+		return CS_FAIL;
+	}
+
+	column->value = &dest;
+	
+	column->valuelen = CS_UNUSED;
+	
+	column->indicator = 0;
+	
+	return true;
+}
+
+
 bool SybStatement::decode_and_set_binary(int index, ERL_NIF_TERM data,  setup_callback callback){
 	if (!is_prepare_ || index < 1 || index > param_count_) {
 		return false;
@@ -1351,56 +2056,17 @@ bool SybStatement::decode_and_set_bit(int index, ERL_NIF_TERM data,  setup_callb
 }
 
 
-bool SybStatement::decode_char(BATCH_COLUMN_DATA* column,int index,ERL_NIF_TERM data){
-	if(enif_is_atom(env_,data) && enif_compare(make_atom(env_,"undefined"),data)){
-		column->indicator = -1;
-		return true;
-	}
-	column->dfmt = 	desc_dfmt_ + (index - 1);
-
-	unsigned int size;
-	
-	enif_get_list_length(env_,data,&size);
-	
-	char* str_buf = (char*) malloc((size+1)*sizeof(CS_CHAR));
-	
-	if(!enif_get_string(env_,data,str_buf,size+1,ERL_NIF_LATIN1)){
-		column->indicator = -2;
-		return false;
-	}
-	column->value = str_buf;
-	return true;
-}
-
-
 bool SybStatement::decode_and_set_char(int index, ERL_NIF_TERM char_data,  setup_callback callback) {
 	if (!is_prepare_ || index < 1 || index > param_count_) {
 		return false;
 	}
 
-	/*if(enif_is_atom(env_,char_data) && enif_compare(make_atom(env_,"undefined"),char_data)){
-		return set_null(index);
-	}
-
-	unsigned int size;
-	
-	enif_get_list_length(env_,char_data,&size);
-	
-	char* str_buf = (char*) malloc((size+1)*sizeof(CS_CHAR));
-	
-	if(!enif_get_string(env_,char_data,str_buf,size+1,ERL_NIF_LATIN1)){
-		return false;
-	}
-
-	CS_DATAFMT* dfmt = desc_dfmt_ + (index - 1);
-	return (*this.*callback)(dfmt, (CS_VOID*) str_buf, CS_NULLTERM);*/
-	SysLogger::info("decode_and_set_char");
 	BATCH_COLUMN_DATA* column = new BATCH_COLUMN_DATA();
 
 	if(!decode_char(column,index,char_data) || column->indicator==-2){
 		return false;
 	}
-	if(column->indicator==-1){
+	if(column->indicator==CS_NODATA){
 		return set_null(index);
 	}
 

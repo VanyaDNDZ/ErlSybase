@@ -29,11 +29,10 @@ class SybStatement {
         public:
             CS_DATAFMT* dfmt;
             CS_VOID *value;
-            CS_INT *valuelen;
+            CS_INT valuelen;
             CS_SMALLINT indicator;
             ~_batch_column_data(){
                 if(value) free(value);
-                if(valuelen) free(valuelen);
             }
     } BATCH_COLUMN_DATA;
 
@@ -442,16 +441,67 @@ public:
 
     CS_RETCODE handle_sql_result(ERL_NIF_TERM** result);
     
-    bool decode_and_set_param( int index, ERL_NIF_TERM data,bool is_bulk = false)
-        {
-            setup_callback callback;
+    decode_callback get_param_decode_function(int index){
+        
+        decode_callback decoder;
             
-            if(!is_bulk){
-                    callback= &SybStatement::set_param;
-            }else{
-                callback=&SybStatement::set_batch_param;
+            int param_type;
+            
+            param_type = get_param_type(index);
+            
+            switch((int)param_type) {
+                
+                case CS_CHAR_TYPE:
+                case CS_LONGCHAR_TYPE:
+                case CS_BIT_TYPE:
+                    decoder = &SybStatement::decode_char;
+                    break;
+                case CS_VARCHAR_TYPE:
+                    decoder = &SybStatement::decode_varchar;
+                    break;
+                case CS_LONGBINARY_TYPE:
+                    decoder = &SybStatement::decode_longbinary;
+                    break;
+                case CS_LONG_TYPE:
+                    decoder = &SybStatement::decode_long; 
+                    break;
+                case CS_VARBINARY_TYPE:
+                    decoder = &SybStatement::decode_varbinary;
+                    break;
+                case CS_SMALLINT_TYPE:
+                    decoder = &SybStatement::decode_smallint;
+                    break;
+                case CS_INT_TYPE:
+                    decoder = &SybStatement::decode_int;
+                    break;  
+                case CS_FLOAT_TYPE:
+                case CS_REAL_TYPE:
+                    decoder = &SybStatement::decode_real;
+                    break;
+                case CS_NUMERIC_TYPE:
+                case CS_DECIMAL_TYPE:
+                    decoder = &SybStatement::decode_numeric;
+                    break;
+                case CS_DATETIME_TYPE:
+                    decoder = &SybStatement::decode_datetime;
+                    break;
+                case CS_DATE_TYPE:
+                    decoder = &SybStatement::decode_date;
+                    break;
+                case CS_TIME_TYPE:
+                    decoder = &SybStatement::decode_time;
+                    break;
+                default:
+                    decoder = NULL;
+                    break;
             }
-            
+            return decoder;
+    }
+
+    bool decode_and_set_param( int index, ERL_NIF_TERM data)
+        {
+            setup_callback callback= &SybStatement::set_param;
+
             bool retcode;
             
             int param_type;
@@ -635,6 +685,7 @@ private:
     ERL_NIF_TERM encode_overflow();
 
     ERL_NIF_TERM encode_null();
+    bool set_batch_param(BATCH_COLUMN_DATA* columns,int index,ERL_NIF_TERM data,decode_callback decode) ;
     
     bool decode_and_set_char(int index, ERL_NIF_TERM char_data,setup_callback);
     
@@ -671,7 +722,38 @@ private:
     bool decode_and_set_long (int index, ERL_NIF_TERM data,  setup_callback callback);
     
     bool decode_and_set_real (int index, ERL_NIF_TERM data,  setup_callback callback);
+    
     bool decode_char(BATCH_COLUMN_DATA* column,int index,ERL_NIF_TERM data);
+    
+    bool decode_varchar(BATCH_COLUMN_DATA* column,int index,ERL_NIF_TERM data);
+
+    bool decode_longbinary(BATCH_COLUMN_DATA* column,int index,ERL_NIF_TERM data);
+
+    bool decode_long(BATCH_COLUMN_DATA* column,int index,ERL_NIF_TERM data);
+
+    bool decode_varbinary(BATCH_COLUMN_DATA* column,int index,ERL_NIF_TERM data);
+
+    bool decode_smallint(BATCH_COLUMN_DATA* column,int index,ERL_NIF_TERM data);
+
+    bool decode_int(BATCH_COLUMN_DATA* column,int index,ERL_NIF_TERM data);
+
+    bool decode_real(BATCH_COLUMN_DATA* column,int index,ERL_NIF_TERM data);
+
+    bool decode_numeric(BATCH_COLUMN_DATA* column,int index,ERL_NIF_TERM data);
+
+    bool decode_datetime(BATCH_COLUMN_DATA* column,int index,ERL_NIF_TERM data);
+
+    bool decode_date(BATCH_COLUMN_DATA* column,int index,ERL_NIF_TERM data);
+
+    bool decode_time(BATCH_COLUMN_DATA* column,int index,ERL_NIF_TERM data);
+
+    bool decode_bit (BATCH_COLUMN_DATA* column,int index,ERL_NIF_TERM data);
+    bool decode_longchar (BATCH_COLUMN_DATA* column,int index,ERL_NIF_TERM data);
+    bool decode_unichar (BATCH_COLUMN_DATA* column,int index,ERL_NIF_TERM data);
+    bool decode_xml (BATCH_COLUMN_DATA* column,int index,ERL_NIF_TERM data);
+    bool decode_tinyint (BATCH_COLUMN_DATA* column,int index,ERL_NIF_TERM data);
+    bool decode_binary(BATCH_COLUMN_DATA* column,int index,ERL_NIF_TERM data);
+    
 };
 
 #endif // SYBSTATEMENT_H
