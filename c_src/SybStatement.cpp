@@ -529,20 +529,18 @@ bool SybStatement::set_param(CS_DATAFMT* dfmt, CS_VOID* data, CS_INT len) {
 bool SybStatement::set_batch_param(BATCH_COLUMN_DATA* columns,int index,ERL_NIF_TERM data,decode_callback decode) {
 	
 	CS_SMALLINT	gooddata = CS_GOODDATA;
-	SysLogger::error("set_batch_param:decode data");
+	CS_RETCODE retcode;
 	if(!(*this.*decode)(columns,index,data)){
-		SysLogger::error("set_batch_param:failed decode data");
 		return false;
 	}
 
 	if(columns->indicator == CS_NODATA){
 		if(!ct_setparam(cmd_,NULL, NULL, NULL,NULL)){
-        	SysLogger::error("set_batch_param:failed setup NULL");
         	return false;	
         }
     }else{
-    	SysLogger::error("set_batch_param: %s",columns->value);
-    	if(!ct_setparam(cmd_,NULL, columns->value, &(columns->valuelen),&gooddata)){
+    	retcode = ct_setparam(cmd_,NULL, columns->value, &(columns->valuelen),&gooddata);
+    	if(!retcode){
     		return false;
     	}
     }
@@ -602,8 +600,8 @@ bool SybStatement::set_params_batch(ERL_NIF_TERM list){
             	
 
                 if(!set_batch_param(columns+(list_index-1),list_index,list_head,get_param_decode_function(list_index))){
-                    
-                    cancel_current();
+                    SysLogger::info("SybStatement::set_params_batch faile to set_batch_param");
+                    cancel_all();
                     return false;
                 }
             
@@ -611,14 +609,20 @@ bool SybStatement::set_params_batch(ERL_NIF_TERM list){
             
                 ++list_index;
             }
-            ct_send_params(cmd_, CS_UNUSED);
+            if(ct_send_params(cmd_, CS_UNUSED)){
+            	SysLogger::info("SybStatement::set_params_batch faile to ct_send_params");
+                cancel_all();
+                return false;
+            }
             list=rows_tail;
             ++rows_index;
         }
         if(!ct_send(cmd_)){
+ 
+            cancel_all();
+        	SysLogger::info("SybStatement::set_params_batch faile to ct_send");
             return false;
         }
-        
         return true;
     }
 

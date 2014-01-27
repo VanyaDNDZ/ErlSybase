@@ -4,7 +4,7 @@
 #define DEBUG 1
 #define MAXBUFLEN       1024
 
-static ERL_NIF_TERM ret_nif(ErlNifEnv* env,bool result_state,ERL_NIF_TERM* result, sybdrv_con* sybdrv_con_handle,SybStatement* stmt);
+static ERL_NIF_TERM ret_nif(ErlNifEnv* env,bool result_state,ERL_NIF_TERM result, sybdrv_con* sybdrv_con_handle,SybStatement* stmt);
 static ErlNifResourceType* sybdrv_crsr;
 static ErlNifResourceType* sybdrv_srsr;
 
@@ -48,15 +48,9 @@ static ERL_NIF_TERM disconnect(ErlNifEnv* env, int argc,
 		return enif_make_badarg(env);
 	}
 	if(sybdrv_con_handle->connection->close()){
-		ERL_NIF_TERM* result=(ERL_NIF_TERM*)malloc(sizeof(ERL_NIF_TERM));
-		ERL_NIF_TERM out = enif_make_string(env, "disconnect", ERL_NIF_LATIN1);
-		result=&out;
-		return ret_nif(env,true,result,sybdrv_con_handle,NULL);
+		return ret_nif(env,true,enif_make_string(env, "disconnect", ERL_NIF_LATIN1),sybdrv_con_handle,NULL);
 	}else{
-		ERL_NIF_TERM* result=(ERL_NIF_TERM*)malloc(sizeof(ERL_NIF_TERM));
-		ERL_NIF_TERM out = enif_make_string(env, "faile disconnect", ERL_NIF_LATIN1);
-		result=&out;
-		return ret_nif(env,false,result,sybdrv_con_handle,NULL);
+		return ret_nif(env,false,enif_make_string(env, "faile disconnect", ERL_NIF_LATIN1),sybdrv_con_handle,NULL);
 	}
 }
 
@@ -117,10 +111,7 @@ static ERL_NIF_TERM prepare_statement(ErlNifEnv* env,int argc,const ERL_NIF_TERM
 	stmt = sybdrv_con_handle->connection->create_statement(statement);
 	
 	if(!stmt->prepare_init(statement_id, statement)){
-		ERL_NIF_TERM* result=(ERL_NIF_TERM*)malloc(sizeof(ERL_NIF_TERM));
-		ERL_NIF_TERM out = enif_make_string(env, "faile prepare_init", ERL_NIF_LATIN1);
-		result=&out;
-		return ret_nif(env,false,result,sybdrv_con_handle,NULL);
+		return ret_nif(env,false,enif_make_string(env, "faile prepare_init", ERL_NIF_LATIN1),sybdrv_con_handle,NULL);
 	}
 	sybdrv_stmt* sybdrv_statement_handle = (sybdrv_stmt*) enif_alloc_resource(
 			sybdrv_srsr, sizeof(sybdrv_stmt));
@@ -154,14 +145,17 @@ static ERL_NIF_TERM execute(ErlNifEnv* env, int argc,
 	ERL_NIF_TERM* result = (ERL_NIF_TERM*)malloc(sizeof(ERL_NIF_TERM));
 	if (!enif_get_resource(env, argv[0], sybdrv_crsr,
 			(void**) &sybdrv_con_handle)) {
+		 free(result);
 		 return enif_make_badarg(env);
 	}
 	if (!enif_get_list_length(env, argv[1], &length)) {
+		 free(result);
 		 return enif_make_badarg(env);
 	}
 
 	sql = (char*) malloc(length + 1);
 	if (!enif_get_string(env, argv[1], sql, length + 1, ERL_NIF_LATIN1)) {
+		 free(result);
 		 return enif_make_badarg(env);
 	}
 
@@ -176,6 +170,7 @@ static ERL_NIF_TERM execute(ErlNifEnv* env, int argc,
 		}
 	}else{
 		if (!enif_is_list(env, argv[2])) {
+			free(result);
 			return enif_make_tuple2(env, sybdrv_atoms.error,
 					enif_make_string(env, "no data bind found", ERL_NIF_LATIN1));
 	}
@@ -187,38 +182,36 @@ static ERL_NIF_TERM execute(ErlNifEnv* env, int argc,
 	
 	if(!stmt->prepare_init("test", sql)){
 		SysLogger::error("prepare statement failed");
+		free(result);
 		return enif_make_tuple2(env, sybdrv_atoms.error,
 						enif_make_string(env, "prepare fail", ERL_NIF_LATIN1));
 	}
 
 	if(!stmt->set_params(argv[2])){
-		ERL_NIF_TERM out = enif_make_string(env, "could not set params",ERL_NIF_LATIN1);
-			result= &out;
-		return ret_nif(env,false,result,sybdrv_con_handle,stmt);
+		free(result);
+		return ret_nif(env,false,enif_make_string(env, "could not set params",ERL_NIF_LATIN1),sybdrv_con_handle,stmt);
 	}
 	if (stmt->execute_sql(&result) ) {
-			return ret_nif(env,true,result,sybdrv_con_handle,stmt);
+			return ret_nif(env,true,*result,sybdrv_con_handle,stmt);
 	} else {
 			ERL_NIF_TERM out = enif_make_string(env, "could not execute cmd",ERL_NIF_LATIN1);
-			result= &out;
-			return ret_nif(env,false,result,sybdrv_con_handle,stmt);
+			return ret_nif(env,false,out,sybdrv_con_handle,stmt);
 		}
 	}
 	
 }
 
-static ERL_NIF_TERM ret_nif(ErlNifEnv* env,bool result_state,ERL_NIF_TERM* result, sybdrv_con* sybdrv_con_handle,SybStatement* stmt){
+static ERL_NIF_TERM ret_nif(ErlNifEnv* env,bool result_state,ERL_NIF_TERM result, sybdrv_con* sybdrv_con_handle,SybStatement* stmt){
 
-	ERL_NIF_TERM out = *result;
 	if (stmt){
 		stmt->prepare_release();	
 		delete stmt;
 	}
 
 	if(result_state){
-		return enif_make_tuple2(env, sybdrv_atoms.ok,out);
+		return enif_make_tuple2(env, sybdrv_atoms.ok,result);
 	}else{
-		return enif_make_tuple2(env, sybdrv_atoms.error,out);
+		return enif_make_tuple2(env, sybdrv_atoms.error,result);
 	}
 
 }
