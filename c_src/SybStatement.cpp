@@ -539,6 +539,7 @@ bool SybStatement::set_batch_param(BATCH_COLUMN_DATA* columns,int index,ERL_NIF_
         	return false;	
         }
     }else{
+    	columns->dfmt->status = CS_INPUTVALUE;
     	retcode = ct_setparam(cmd_,NULL, columns->value, &(columns->valuelen),&gooddata);
     	if(!retcode){
     		return false;
@@ -554,6 +555,7 @@ bool SybStatement::batch_initial_bind(int column_count){
         for (int i = 0; i < column_count; ++i)
         {
             CS_DATAFMT* dfmt = desc_dfmt_ + i;
+            dfmt->status = CS_INPUTVALUE;
             if(!ct_setparam(cmd_, dfmt, NULL, NULL, NULL)){
                 return false;
             }
@@ -601,6 +603,7 @@ bool SybStatement::set_params_batch(ERL_NIF_TERM list){
 
                 if(!set_batch_param(columns+(list_index-1),list_index,list_head,get_param_decode_function(list_index))){
                     SysLogger::info("SybStatement::set_params_batch faile to set_batch_param");
+                    if(columns) delete columns;
                     cancel_all();
                     return false;
                 }
@@ -609,8 +612,9 @@ bool SybStatement::set_params_batch(ERL_NIF_TERM list){
             
                 ++list_index;
             }
-            if(ct_send_params(cmd_, CS_UNUSED)){
+            if(!ct_send_params(cmd_, CS_UNUSED)){
             	SysLogger::info("SybStatement::set_params_batch faile to ct_send_params");
+            	
                 cancel_all();
                 return false;
             }

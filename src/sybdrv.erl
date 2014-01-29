@@ -1,6 +1,9 @@
 -module (sybdrv).
--export ([init/0,connect/3,execute_batch/2,disconnect/1,execute/3,execute_cmd/2,test/1,test_insert/1,test_out/1,prepare_statement/3,close_statement/1]).
+-behaviour(application).
+-export ([start/0,init/0,connect/3,execute_batch/2,disconnect/1,execute/3,execute_cmd/2,test/1,test_insert/1,test_out/1,prepare_statement/3,close_statement/1]).
 
+start()->
+    init().
 
 init()->
     case code:which(sybdrv) of
