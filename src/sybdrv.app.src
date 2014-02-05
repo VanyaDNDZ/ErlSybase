@@ -5,5 +5,18 @@
   {applications, [
                   kernel,
                   stdlib
-                 ]}
+                 ]},
+  {env, [
+        {pools, [
+            {p48testab, [
+                {size, 10},
+                {max_overflow, 20}
+            ], [
+                {hostname, "P48TestAB"},
+                {database, "oper"},
+                {username, "test"},
+                {password, "123456"}
+            ]}
+        ]}
+    ]}
  ]}.

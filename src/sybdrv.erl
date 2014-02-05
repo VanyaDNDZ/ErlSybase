@@ -1,108 +1,52 @@
--module (sybdrv).
+-module(sybdrv).
+
 -behaviour(application).
--export ([start/0,init/0,connect/3,execute_batch/2,disconnect/1,execute/3,execute_cmd/2,test/1,test_insert/1,test_out/1,prepare_statement/3,close_statement/1]).
+-behaviour (supervisor).
 
-start()->
-    init().
+%% Application callbacks
+-export([start/1, start/2, stop/0, stop/1,init/1]).
 
-init()->
-    case code:which(sybdrv) of
-        Filename when is_list(Filename) ->
-            erlang:load_nif(filename:join([filename:dirname(Filename),
-                                           "..","priv",
-                                           "sybdrv"]), 0);
-        Reason when is_atom(Reason) ->
-            {error, Reason}
-    end.
+%% API
+-export([execQuery/2, execQueryWithArgs/3]).
+
+%% ===================================================================
+%% Application callbacks
+%% ===================================================================
+
+start(Args) ->
+  application:start(?MODULE),
+  start(normal, Args).
+
+stop() ->
+  stop([]).
+
+start(_StartType, Args) ->
+  sybdrv_nif:init(),
+  supervisor:start_link({local, ?MODULE}, ?MODULE, []).
+
+stop(_State) ->
+  application:stop(?MODULE).
 
 
--spec connect(atom(),atom(),atom())->{ok,binary()}.
-connect(_Server,_User,_Pass) ->
-    erlang:nif_error(nif_library_not_loaded).
+init([]) ->
+  {ok, Pools} = application:get_env(sybdrv, pools),
+    PoolSpecs = lists:map(fun({Name, SizeArgs, WorkerArgs}) ->
+        PoolArgs = [{name, {local, Name}},
+                    {worker_module, sybdrv_worker}] ++ SizeArgs,
+        poolboy:child_spec(Name, PoolArgs, WorkerArgs)
+    end, Pools),
+    {ok, {{one_for_one, 10, 10}, PoolSpecs}}.
 
--spec disconnect(atom())->{ok,list()}.
-disconnect(_Server) ->
-    erlang:nif_error(nif_library_not_loaded).
+%%%===================================================================
+%%% API functions
+%%%===================================================================
 
--spec execute(binary(),list(),list())->{ok,list()}|{error,list()}.
-execute(_Conn, _Sql,_Param)->
-    erlang:nif_error(nif_library_not_loaded).  
+execQuery(PoolName, Sql) ->
+  poolboy:transaction(PoolName, fun(Worker) ->
+    gen_server:call(Worker, {plain_sql, Sql})
+  end).
 
-prepare_statement(_Conn, _Id,_Sql)->
-    erlang:nif_error(nif_library_not_loaded).  
-
-close_statement(_Stmt)->
-    erlang:nif_error(nif_library_not_loaded).  
-
-execute_batch(_Stmt, _Params)->
-    erlang:nif_error(nif_library_not_loaded).  
-
-test(Conn)->
-sybdrv:execute(Conn,"SELECT * from oper..tt",[]),
-sybdrv:execute(Conn,"SELECT * from oper..tt",[]),
-sybdrv:execute(Conn,"SELECT * from oper..tt",[]),
-sybdrv:execute(Conn,"SELECT * from oper..tt",[]),
-sybdrv:execute(Conn,"SELECT * from oper..tt",[]),
-sybdrv:execute(Conn,"SELECT * from oper..tt",[]),
-sybdrv:execute(Conn,"SELECT * from oper..tt",[]),
-sybdrv:execute(Conn,"SELECT * from oper..tt",[]),
-sybdrv:execute(Conn,"SELECT * from oper..tt",[]),
-sybdrv:execute(Conn,"SELECT * from oper..tt",[]),
-sybdrv:execute(Conn,"SELECT * from oper..tt",[]),
-sybdrv:execute(Conn,"SELECT * from oper..tt",[]),
-sybdrv:execute(Conn,"SELECT * from oper..tt",[]),
-sybdrv:execute(Conn,"SELECT * from oper..tt",[]),
-sybdrv:execute(Conn,"SELECT * from oper..tt",[]),
-sybdrv:execute(Conn,"SELECT * from oper..tt",[]),
-sybdrv:execute(Conn,"SELECT * from oper..tt",[]),
-sybdrv:execute(Conn,"SELECT * from oper..tt",[]),
-sybdrv:execute(Conn,"SELECT * from oper..tt",[]),
-sybdrv:execute(Conn,"SELECT * from oper..tt",[]),
-sybdrv:execute(Conn,"SELECT * from oper..tt",[]),
-sybdrv:execute(Conn,"SELECT * from oper..tt",[]),
-sybdrv:execute(Conn,"SELECT * from oper..tt",[]),
-sybdrv:execute(Conn,"SELECT * from oper..tt",[]),
-sybdrv:execute(Conn,"SELECT * from oper..tt",[]),
-sybdrv:execute(Conn,"SELECT * from oper..tt",[]).
-
-test_insert(Conn)->
-sybdrv:execute(Conn,"insert into oper..tt values(?)",[{time,{17,43,11,880}}]),
-sybdrv:execute(Conn,"insert into oper..tt values(?)",[{time,{17,43,11,880}}]),
-sybdrv:execute(Conn,"insert into oper..tt values(?)",[{time,{17,43,11,880}}]),
-sybdrv:execute(Conn,"insert into oper..tt values(?)",[{time,{17,43,11,880}}]),
-sybdrv:execute(Conn,"insert into oper..tt values(?)",[{time,{17,43,11,880}}]),
-sybdrv:execute(Conn,"insert into oper..tt values(?)",[{time,{17,43,11,880}}]),
-sybdrv:execute(Conn,"insert into oper..tt values(?)",[{time,{17,43,11,880}}]),
-sybdrv:execute(Conn,"insert into oper..tt values(?)",[{time,{17,43,11,880}}]),
-sybdrv:execute(Conn,"insert into oper..tt values(?)",[{time,{17,43,11,880}}]),
-sybdrv:execute(Conn,"insert into oper..tt values(?)",[{time,{17,43,11,880}}]),
-sybdrv:execute(Conn,"insert into oper..tt values(?)",[{time,{17,43,11,880}}]),
-sybdrv:execute(Conn,"insert into oper..tt values(?)",[{time,{17,43,11,880}}]),
-sybdrv:execute(Conn,"insert into oper..tt values(?)",[{time,{17,43,11,880}}]),
-sybdrv:execute(Conn,"insert into oper..tt values(?)",[{time,{17,43,11,880}}]),
-sybdrv:execute(Conn,"insert into oper..tt values(?)",[{time,{17,43,11,880}}]),
-sybdrv:execute(Conn,"insert into oper..tt values(?)",[{time,{17,43,11,880}}]),
-sybdrv:execute(Conn,"insert into oper..tt values(?)",[{time,{17,43,11,880}}]),
-sybdrv:execute(Conn,"insert into oper..tt values(?)",[{time,{17,43,11,880}}]),
-sybdrv:execute(Conn,"insert into oper..tt values(?)",[{time,{17,43,11,880}}]),
-sybdrv:execute(Conn,"insert into oper..tt values(?)",[{time,{17,43,11,880}}]),
-sybdrv:execute(Conn,"insert into oper..tt values(?)",[{time,{17,43,11,880}}]),
-sybdrv:execute(Conn,"insert into oper..tt values(?)",[{time,{17,43,11,880}}]),
-sybdrv:execute(Conn,"insert into oper..tt values(?)",[{time,{17,43,11,880}}]),
-sybdrv:execute(Conn,"insert into oper..tt values(?)",[{time,{17,43,11,880}}]),
-sybdrv:execute(Conn,"insert into oper..tt values(?)",[{time,{17,43,11,880}}]).
-
-test_out(Conn)->
-    {ok,Rows} = execute(Conn,"select * from oper..t3",[]),
-    print_all(Rows).
-
-print_all([])->
-    ok;
-print_all([Head|Tail])->
-    lists:foreach(fun(Z) ->io:format("~62p ",[Z])    end, Head), 
-    io:format("~n",[]),
-    print_all(Tail). 
-
-execute_cmd(Conn,Sql)->
-    {Rezult,_}=execute(Conn,Sql,[]),  
-    Rezult.
+execQueryWithArgs(PoolName, Sql, Args) ->
+  poolboy:transaction(PoolName, fun(Worker) ->
+    gen_server:call(Worker, {args_query, Sql, Args})
+  end).

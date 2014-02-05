@@ -224,12 +224,12 @@ static void unload_connect(ErlNifEnv* env, void* arg) {
 static int load_init(ErlNifEnv* env, void** priv_data, ERL_NIF_TERM load_info) {
 	ErlNifResourceFlags flags = (ErlNifResourceFlags) (ERL_NIF_RT_CREATE
 			| ERL_NIF_RT_TAKEOVER);
-	sybdrv_crsr = enif_open_resource_type(env, "sybdrv", "sybdrv_crsr", &unload_connect,
+	sybdrv_crsr = enif_open_resource_type(env, "sybdrv_nif", "sybdrv_crsr", &unload_connect,
 			flags, NULL);
 	if(!sybdrv_crsr){
 		return -1;
 	}
-	sybdrv_srsr = enif_open_resource_type(env, "sybdrv", "sybdrv_srsr", &unload_connect,
+	sybdrv_srsr = enif_open_resource_type(env, "sybdrv_nif", "sybdrv_srsr", &unload_connect,
 			flags, NULL);
 	if(!sybdrv_srsr){
 		return -1;
@@ -257,5 +257,5 @@ static ErlNifFunc nif_funcs[] = {
 		{"execute_batch",2,execute_batch}};
 
 
-ERL_NIF_INIT(sybdrv, nif_funcs, &load_init, NULL, NULL, NULL);
+ERL_NIF_INIT(sybdrv_nif, nif_funcs, &load_init, NULL, NULL, NULL);
 
