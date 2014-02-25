@@ -7,7 +7,7 @@
 -export([start/1, start/2, stop/0, stop/1,init/1]).
 
 %% API
--export([execQuery/2, execQueryWithArgs/3]).
+-export([execQuery/2, execQueryWithArgs/3,execCallProc/3]).
 
 %% ===================================================================
 %% Application callbacks
@@ -20,7 +20,7 @@ start(Args) ->
 stop() ->
   stop([]).
 
-start(_StartType, Args) ->
+start(_StartType, _Args) ->
   sybdrv_nif:init(),
   supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
@@ -49,4 +49,9 @@ execQuery(PoolName, Sql) ->
 execQueryWithArgs(PoolName, Sql, Args) ->
   poolboy:transaction(PoolName, fun(Worker) ->
     gen_server:call(Worker, {args_query, Sql, Args})
+  end).
+
+execCallProc(PoolName, Sql, Args) ->
+  poolboy:transaction(PoolName, fun(Worker) ->
+    gen_server:call(Worker, {call_proc_no_args, Sql, Args})
   end).

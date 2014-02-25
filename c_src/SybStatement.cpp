@@ -238,6 +238,65 @@ bool SybStatement::execute_sql(ERL_NIF_TERM** result, const char* sql) {
 	return true;
 }
 
+/**
+ *	call procedure
+ */
+int SybStatement::call_procedure() {
+	int proc_status;
+	proc_status=-1;
+	if (is_prepare_) {
+		if (!executed_) {
+			if (ct_dynamic(cmd_, CS_EXECUTE, id_, CS_NULLTERM, NULL,
+					CS_UNUSED) != CS_SUCCEED) {
+				SysLogger::error("execute_sql:ct_dynamic() failed");
+				return false;
+			}
+			executed_ = true;
+		}
+		if (ct_send(cmd_) != CS_SUCCEED) {
+			SysLogger::error("execute_sql:ct_send() failed");
+			return false;
+		}
+
+		/** Handle the result and encode to ei_x_buff */
+		if ((proc_status=handle_proc_status()) != 0) {
+			return proc_status;
+		}
+		executed_ = false;
+		return proc_status;
+	} else {
+		return call_procedure(sql_);
+	}
+}
+
+/** call_procedure */
+int SybStatement::call_procedure(const char* sql) {
+	int proc_status;
+	proc_status=-1;
+	if (cmd_ == NULL) {
+		return proc_status;
+	}
+	reset();
+
+	/* Store the command string in it, and send it to the server.*/
+	if (ct_command(cmd_, CS_RPC_CMD, (CS_CHAR*) sql, CS_NULLTERM,
+			CS_UNUSED) != CS_SUCCEED) {
+		SysLogger::error("execute_sql: ct_command() failed");
+		return proc_status;
+	}
+	if (ct_send(cmd_) != CS_SUCCEED) {
+		SysLogger::error("execute_sql: ct_send() failed");
+		return proc_status;
+	}
+
+	/** Handle the result and encode to ei_x_buff */
+	if ((proc_status=handle_proc_status()) != 0) {
+		SysLogger::error("call_procedure: handle_sql_result failed %d",proc_status);
+	}
+
+	return proc_status;
+}
+
 bool SybStatement::prepare_init(const char* id) {
 	return prepare_init(id, sql_);
 }
@@ -395,23 +454,27 @@ CS_RETCODE SybStatement::handle_sql_result(ERL_NIF_TERM** result) {
 		case CS_COMPUTE_RESULT:
 		case CS_CURSOR_RESULT:
 		case CS_PARAM_RESULT:
-		case CS_STATUS_RESULT:
 		case CS_ROW_RESULT:
 			is_query = 1;
-			
 			out = process_row_result();
 			*result = &out;
 	 		break;
+	 	case CS_STATUS_RESULT:
+	 		if (1!=is_query){
+	 			is_query = 1;
+	 			out = process_row_result();
+				*result = &out;
+	 		}else{
+	 			ct_cancel(NULL, cmd_, CS_CANCEL_CURRENT);
+	 		}
+	 		break;
+
 
 		case CS_CMD_SUCCEED:
 			break;
 
 		case CS_CMD_DONE:
 			row_count_ = get_row_count();
-			if (is_query == 0) {
-				out = enif_make_tuple2(env_,enif_make_atom(env_,"rowupdated"),enif_make_int(env_,(int) row_count_));
-				*result = &out;	
-			}
 			break;
 
 		default:
@@ -435,11 +498,61 @@ CS_RETCODE SybStatement::handle_sql_result(ERL_NIF_TERM** result) {
 	}
 
 	if (is_query == 0) {
-		out = enif_make_int(env_,row_count_);
+		out = enif_make_list(env_,1,enif_make_list(env_,1,enif_make_long(env_,row_count_)));
+		if (enif_is_list(env_,out)){
+			SysLogger::error("handle_sql_result: is list true");
+		}else{
+			SysLogger::error("handle_sql_result: is list false");
+		}
 		*result = &out;	
 		return CS_SUCCEED;
 	}
 	return CS_SUCCEED;
+}
+
+int SybStatement::handle_proc_status() {
+	CS_RETCODE retcode;
+	CS_INT restype;
+	CS_RETCODE query_code = CS_SUCCEED;
+	row_count_ = 0;
+	int out;
+	out = -1;
+	/** Examine the results coming back. If any errors are seen, the query
+	 * result code (which we will return from this function) will be set to FAIL.
+	 */
+	while ((retcode = ct_results(cmd_, &restype)) == CS_SUCCEED) {
+		switch ((int)restype) {
+		case CS_STATUS_RESULT:
+			out = process_proc_result();
+	 		break;
+
+		case CS_CMD_SUCCEED:
+			break;
+
+		case CS_CMD_DONE:
+			break;
+
+		default:
+			/** Unexpected result type. */
+			query_code = CS_FAIL;
+			break;
+		}
+
+		if (query_code == CS_FAIL) {
+
+			/** Terminate results processing and break out of the results loop */
+			if (ct_cancel(NULL, cmd_, CS_CANCEL_ALL) != CS_SUCCEED) {
+				SysLogger::error("handle_sql_result: ct_cancel() failed");
+			}
+			break;
+		}
+	}
+
+	if ((int)retcode != (int)CS_END_RESULTS || (int)query_code != (int)CS_SUCCEED) {
+		return out;
+	}
+
+	return out;
 }
 
 CS_RETCODE SybStatement::encode_update_result(ERL_NIF_TERM* result,
@@ -503,6 +616,89 @@ ERL_NIF_TERM SybStatement::process_row_result() {
 	}
 	
 	return encode_query_result(columns, column_count);
+}
+
+int SybStatement::process_proc_result() {
+	
+	/** Find out how many columns there are in this result set.*/
+	CS_INT column_count = 1;
+	int result=-1;
+
+	/** Make sure we have at least one column. */
+	if (column_count <= 0) {
+		SysLogger::error("process_proc_result: have no columns");
+		return cancel_current();
+	}
+
+	/** Allocate memory for the data element to process. */
+	COLUMN_DATA* columns = (COLUMN_DATA *)malloc(sizeof (COLUMN_DATA));
+	if (columns == NULL) {
+		SysLogger::error("process_proc_result: allocate COLUMN_DATA failed");
+		cancel_current();
+		return result;
+	}
+
+		/**
+		 * Get the column description.  ct_describe() fills the
+		 * datafmt parameter with a description of the column.
+		 */
+		CS_DATAFMT *dfmt = &columns->dfmt;
+
+		memset((char*)dfmt, 0, sizeof(CS_DATAFMT));
+		if (ct_describe(cmd_, 1, dfmt) != CS_SUCCEED) {
+			SysLogger::error("process_proc_result: ct_describe failed");
+			free_column_data(columns, 1);
+			cancel_current();
+			return result;
+		}
+
+		columns->value = alloc_column_value(dfmt);
+		if (columns->value == NULL) {
+			SysLogger::error("process_proc_result: alloc_column_value() failed");
+			free_column_data(columns, 1);
+			cancel_current();
+			return result;
+		}
+
+		if (ct_bind(cmd_, 1, dfmt, (CS_VOID *) columns->value,
+				&columns->valuelen, &columns->indicator) != CS_SUCCEED) {
+			SysLogger::error("process_proc_result: ct_bind() failed");
+			free_column_data(columns, 1);
+			cancel_current();
+			return result;
+		}
+	CS_RETCODE retcode;
+	CS_INT rows_read;
+
+	/** Fetch the rows.  Loop while ct_fetch() returns CS_SUCCEED or
+	 * CS_ROW_FAIL
+	 */
+
+	retcode = ct_fetch(cmd_, CS_UNUSED, CS_UNUSED, CS_UNUSED,&rows_read);
+	if (CS_SUCCEED == retcode ){
+		result =(int)*((CS_INT*)columns->value);
+	}
+	
+	while((retcode = ct_fetch(cmd_, CS_UNUSED, CS_UNUSED, CS_UNUSED,&rows_read))==CS_SUCCEED || retcode==CS_ROW_FAIL) {
+	  
+	}
+	switch ((int)retcode) {
+	case CS_END_DATA:
+		retcode = CS_SUCCEED;
+		break;
+
+	case CS_FAIL:
+		SysLogger::error("encode_query_result: ct_fetch() failed");
+		break;
+
+	default:
+		/** We got an unexpected return value. */
+		SysLogger::error("encode_query_result: ct_fetch() returned an "
+				"expected retcode:%d", retcode);
+		break;
+	}
+
+	return result;
 }
 
 bool SybStatement::set_param(CS_DATAFMT* dfmt, CS_VOID* data, CS_INT len) {

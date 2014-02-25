@@ -88,6 +88,26 @@ public:
      *  @retval false The routine failed.
      */
     bool execute_sql(ERL_NIF_TERM** result, const char* sql);
+    /** @brief Execute a language command, encode result to the buffer and
+     *      return success or failure.
+     *  @param result The address of a ERL_NIF_TERM variable. execute_sql
+     *      encode result to the buffer.
+     *  @return If successful.
+     *  @retval true The routine completed successfully.
+     *  @retval false The routine failed.
+     */
+    int call_procedure();
+    
+    /** @brief Execute a language command, encode result to the buffer and
+     *      return success or failure.
+     *  @param result The address of a ERL_NIF_TERM variable. execute_sql
+     *      encode result to the buffer.
+     *  @param sql A pointer to a sql string, default is the sql in constructor.
+     *  @return If successful.
+     *  @retval true The routine completed successfully.
+     *  @retval false The routine failed.
+     */
+    int call_procedure(const char* sql);
 
     /** @brief Initialize a prepare statement.
      *  @param id A pointer to the statement identifier. This identifier
@@ -441,6 +461,10 @@ public:
 
     CS_RETCODE handle_sql_result(ERL_NIF_TERM** result);
     
+    int handle_proc_status();
+
+    int process_proc_result();
+
     decode_callback get_param_decode_function(int index){
         
         decode_callback decoder;

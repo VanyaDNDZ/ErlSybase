@@ -142,23 +142,21 @@ static ERL_NIF_TERM execute(ErlNifEnv* env, int argc,
 	sybdrv_con* sybdrv_con_handle;
 	char* sql = NULL;
 	unsigned int length;
-	ERL_NIF_TERM* result = (ERL_NIF_TERM*)malloc(sizeof(ERL_NIF_TERM));
+	
 	if (!enif_get_resource(env, argv[0], sybdrv_crsr,
 			(void**) &sybdrv_con_handle)) {
-		 free(result);
 		 return enif_make_badarg(env);
 	}
 	if (!enif_get_list_length(env, argv[1], &length)) {
-		 free(result);
 		 return enif_make_badarg(env);
 	}
 
 	sql = (char*) malloc(length + 1);
 	if (!enif_get_string(env, argv[1], sql, length + 1, ERL_NIF_LATIN1)) {
-		 free(result);
 		 return enif_make_badarg(env);
 	}
 
+	ERL_NIF_TERM* result = (ERL_NIF_TERM*)malloc(sizeof(ERL_NIF_TERM));
 	if (enif_is_empty_list(env, argv[2])) {
 		stmt = sybdrv_con_handle->connection->create_statement(sql);
 		if (stmt->execute_sql(&result)) {
@@ -199,6 +197,41 @@ static ERL_NIF_TERM execute(ErlNifEnv* env, int argc,
 		}
 	}
 	
+}
+
+static ERL_NIF_TERM call_proc(ErlNifEnv* env,int argc,const ERL_NIF_TERM argv[]){
+	SybStatement* stmt;
+	sybdrv_con* sybdrv_con_handle;
+	char* sql = NULL;
+	unsigned int length;
+	
+	if (!enif_get_resource(env, argv[0], sybdrv_crsr,
+			(void**) &sybdrv_con_handle)) {
+		 return enif_make_badarg(env);
+	}
+	if (!enif_get_list_length(env, argv[1], &length)) {
+		 return enif_make_badarg(env);
+	}
+
+	sql = (char*) malloc(length + 1);
+	if (!enif_get_string(env, argv[1], sql, length + 1, ERL_NIF_LATIN1)) {
+		 return enif_make_badarg(env);
+	}
+
+	//ERL_NIF_TERM* result = (ERL_NIF_TERM*)malloc(sizeof(ERL_NIF_TERM));
+	if (enif_is_empty_list(env, argv[2])) {
+		stmt = sybdrv_con_handle->connection->create_statement(sql);
+		if (0==stmt->call_procedure()) {
+			return enif_make_tuple2(env, sybdrv_atoms.ok,enif_make_string(env, "call_proc SUCCEED",
+							ERL_NIF_LATIN1));
+		} else {
+			return enif_make_tuple2(env, sybdrv_atoms.error,
+					enif_make_string(env, "could not execute cmd",
+							ERL_NIF_LATIN1));
+		}
+	}
+	return enif_make_tuple2(env, sybdrv_atoms.error,
+					enif_make_string(env, "no data bind found", ERL_NIF_LATIN1));
 }
 
 static ERL_NIF_TERM ret_nif(ErlNifEnv* env,bool result_state,ERL_NIF_TERM result, sybdrv_con* sybdrv_con_handle,SybStatement* stmt){
@@ -254,7 +287,9 @@ static ErlNifFunc nif_funcs[] = {
 		{"disconnect",1,disconnect},
 		{"prepare_statement",3,prepare_statement},
 		{"close_statement",1,close_statement},
-		{"execute_batch",2,execute_batch}};
+		{"execute_batch",2,execute_batch},
+		{"call_proc",3,call_proc}
+	};
 
 
 ERL_NIF_INIT(sybdrv_nif, nif_funcs, &load_init, NULL, NULL, NULL);
