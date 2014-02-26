@@ -8,6 +8,18 @@ static ERL_NIF_TERM ret_nif(ErlNifEnv* env,bool result_state,ERL_NIF_TERM result
 static ErlNifResourceType* sybdrv_crsr;
 static ErlNifResourceType* sybdrv_srsr;
 
+static void gen_random(char *s, const int len) {
+    static const char alphanum[] =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        "abcdefghijklmnopqrstuvwxyz";
+
+    for (int i = 0; i < len; ++i) {
+        s[i] = alphanum[rand() % (sizeof(alphanum) - 1)];
+    }
+
+    s[len] = 0;
+}
+
 static ERL_NIF_TERM connect(ErlNifEnv* env, int argc,
 		const ERL_NIF_TERM argv[]) {
 	SybConnection* conn = new SybConnection(env);
@@ -178,19 +190,26 @@ static ERL_NIF_TERM execute(ErlNifEnv* env, int argc,
 	
 	enif_get_list_length(env, argv[2], &columns);
 	
-	if(!stmt->prepare_init("test", sql)){
-		SysLogger::error("prepare statement failed");
+	char * statement_id = (char*)malloc(10);
+	gen_random(statement_id,10);
+
+	if(!stmt->prepare_init(statement_id, sql)){
 		free(result);
+		free(statement_id);
+		free(sql);
+		delete stmt;
 		return enif_make_tuple2(env, sybdrv_atoms.error,
 						enif_make_string(env, "prepare fail", ERL_NIF_LATIN1));
 	}
 
 	if(!stmt->set_params(argv[2])){
 		free(result);
+		delete stmt;
 		return ret_nif(env,false,enif_make_string(env, "could not set params",ERL_NIF_LATIN1),sybdrv_con_handle,stmt);
 	}
 	if (stmt->execute_sql(&result) ) {
-			return ret_nif(env,true,*result,sybdrv_con_handle,stmt);
+		delete stmt;
+		return ret_nif(env,true,*result,sybdrv_con_handle,stmt);
 	} else {
 			ERL_NIF_TERM out = enif_make_string(env, "could not execute cmd",ERL_NIF_LATIN1);
 			return ret_nif(env,false,out,sybdrv_con_handle,stmt);
@@ -222,14 +241,17 @@ static ERL_NIF_TERM call_proc(ErlNifEnv* env,int argc,const ERL_NIF_TERM argv[])
 	if (enif_is_empty_list(env, argv[2])) {
 		stmt = sybdrv_con_handle->connection->create_statement(sql);
 		if (0==stmt->call_procedure()) {
+			free(sql);
 			return enif_make_tuple2(env, sybdrv_atoms.ok,enif_make_string(env, "call_proc SUCCEED",
 							ERL_NIF_LATIN1));
 		} else {
+			free(sql);
 			return enif_make_tuple2(env, sybdrv_atoms.error,
 					enif_make_string(env, "could not execute cmd",
 							ERL_NIF_LATIN1));
 		}
 	}
+	free(sql);
 	return enif_make_tuple2(env, sybdrv_atoms.error,
 					enif_make_string(env, "no data bind found", ERL_NIF_LATIN1));
 }
@@ -279,6 +301,7 @@ static int load_init(ErlNifEnv* env, void** priv_data, ERL_NIF_TERM load_info) {
 
 	return 0;
 }
+
 
 
 static ErlNifFunc nif_funcs[] = { 

@@ -25,7 +25,8 @@ start(_StartType, _Args) ->
   supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 stop(_State) ->
-  application:stop(?MODULE).
+  application:stop(?MODULE),
+  ok.
 
 
 init([]) ->
@@ -35,7 +36,7 @@ init([]) ->
                     {worker_module, sybdrv_worker}] ++ SizeArgs,
         poolboy:child_spec(Name, PoolArgs, WorkerArgs)
     end, Pools),
-    {ok, {{one_for_one, 10, 10}, PoolSpecs}}.
+    {ok, {{one_for_all, 10, 10}, PoolSpecs}}.
 
 %%%===================================================================
 %%% API functions
