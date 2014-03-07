@@ -36,8 +36,7 @@ handle_info(_Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, #state{conn=Conn}) ->
-    ok = sybdrv_nif:disconnect(Conn),
-    ok.
+    {ok,"disconnect"} = sybdrv_nif:disconnect(Conn).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
