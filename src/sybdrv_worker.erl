@@ -21,11 +21,11 @@ init(Args) ->
     {ok, #state{conn=Conn}}.
 
 handle_call({plain_sql, Sql}, _From, #state{conn=Conn}=State) ->
-    {reply, sybdrv_nif:execute(Conn, Sql,[]), State};
+    {reply, sybdrv_nif:execute(Conn, binary:bin_to_list(unicode:characters_to_binary(Sql)), []), State};
 handle_call({args_query, Sql, Params}, _From, #state{conn=Conn}=State) ->
-    {reply, sybdrv_nif:execute(Conn, Sql, Params), State};
+    {reply, sybdrv_nif:execute(Conn, binary:bin_to_list(unicode:characters_to_binary(Sql)), Params), State};
 handle_call({call_proc_no_args, Sql, Params}, _From, #state{conn=Conn}=State) ->
-    {reply, sybdrv_nif:call_proc(Conn, Sql, []), State};
+    {reply, sybdrv_nif:call_proc(Conn, Sql, Params), State};
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 

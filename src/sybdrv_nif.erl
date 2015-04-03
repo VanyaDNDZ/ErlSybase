@@ -23,19 +23,19 @@ disconnect(_Server) ->
 
 -spec execute(binary(),list(),list())->{ok,list()}|{error,list()}.
 execute(_Conn, _Sql,_Param)->
-    erlang:nif_error(nif_library_not_loaded).  
+    erlang:nif_error(nif_library_not_loaded).
 
 prepare_statement(_Conn, _Id,_Sql)->
-    erlang:nif_error(nif_library_not_loaded).  
+    erlang:nif_error(nif_library_not_loaded).
 
 close_statement(_Stmt)->
-    erlang:nif_error(nif_library_not_loaded).  
+    erlang:nif_error(nif_library_not_loaded).
 
 execute_batch(_Stmt, _Params)->
-    erlang:nif_error(nif_library_not_loaded).  
+    erlang:nif_error(nif_library_not_loaded).
 
 execute_cmd(Conn,Sql)->
-    {Rezult,_}=execute(Conn,Sql,[]),  
+    {Rezult, _} = execute(Conn, Sql, []),
     Rezult.
 call_proc(_Conn,_Sql,_Param)->
         erlang:nif_error(nif_library_not_loaded).
