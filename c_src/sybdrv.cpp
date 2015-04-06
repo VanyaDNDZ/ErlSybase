@@ -8,6 +8,8 @@ static ERL_NIF_TERM ret_nif(ErlNifEnv* env,bool result_state,ERL_NIF_TERM result
 static ErlNifResourceType* sybdrv_crsr;
 static ErlNifResourceType* sybdrv_srsr;
 
+SysLogger* logger = new SysLogger();
+
 static void gen_random(char *s, const int len) {
     static const char alphanum[] =
         "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -151,10 +153,13 @@ static ERL_NIF_TERM close_statement(ErlNifEnv* env,int argc,const ERL_NIF_TERM a
 static ERL_NIF_TERM execute(ErlNifEnv* env, int argc,
 		const ERL_NIF_TERM argv[]) {
 	SybStatement* stmt;
+
 	sybdrv_con* sybdrv_con_handle;
+
 	char* sql = NULL;
+
 	unsigned int length;
-	
+
 	if (!enif_get_resource(env, argv[0], sybdrv_crsr,
 			(void**) &sybdrv_con_handle)) {
 		 return enif_make_badarg(env);
@@ -187,13 +192,17 @@ static ERL_NIF_TERM execute(ErlNifEnv* env, int argc,
 	stmt = sybdrv_con_handle->connection->create_statement();
 
 	unsigned int columns;
-	
+
 	enif_get_list_length(env, argv[2], &columns);
-	
+
 	char * statement_id = (char*)malloc(10);
+
 	gen_random(statement_id,10);
 
 	if(!stmt->prepare_init(statement_id, sql)){
+		#ifdef DEBUG
+            logger->debug("Statement prepair failed ",statement_id);
+        #endif
 		free(result);
 		free(statement_id);
 		free(sql);
@@ -202,17 +211,17 @@ static ERL_NIF_TERM execute(ErlNifEnv* env, int argc,
 						enif_make_string(env, "prepare fail", ERL_NIF_LATIN1));
 	}
 
+
 	if(!stmt->set_params(argv[2])){
 		free(result);
-		delete stmt;
 		return ret_nif(env,false,enif_make_string(env, "could not set params",ERL_NIF_LATIN1),sybdrv_con_handle,stmt);
 	}
+
 	if (stmt->execute_sql(&result) ) {
-		delete stmt;
 		return ret_nif(env,true,*result,sybdrv_con_handle,stmt);
 	} else {
-			ERL_NIF_TERM out = enif_make_string(env, "could not execute cmd",ERL_NIF_LATIN1);
-			return ret_nif(env,false,out,sybdrv_con_handle,stmt);
+		ERL_NIF_TERM out = enif_make_string(env, "could not execute cmd",ERL_NIF_LATIN1);
+		return ret_nif(env,false,out,sybdrv_con_handle,stmt);
 		}
 	}
 	
@@ -258,8 +267,10 @@ static ERL_NIF_TERM call_proc(ErlNifEnv* env,int argc,const ERL_NIF_TERM argv[])
 
 static ERL_NIF_TERM ret_nif(ErlNifEnv* env,bool result_state,ERL_NIF_TERM result, sybdrv_con* sybdrv_con_handle,SybStatement* stmt){
 
-	if (stmt){
-		stmt->prepare_release();	
+	if (stmt ){
+		if(!stmt->prepare_release()){
+			logger->error("Can't release statement,already released?");
+		}
 		delete stmt;
 	}
 

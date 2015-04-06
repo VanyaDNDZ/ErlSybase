@@ -2,35 +2,43 @@ ErlSybase
 =========
 
 Sybase nif driver for erlang
-
+rewritten from [erlang-db-driver port driver](https://github.com/denglf/erlang-db-driver) 
 
 Usage
 =========
 
-run erlang 
+0.Run erlang <br>
+<code>erl ebin/ deps/*/ebin</code>
 
-start driver
+```erl
+%%Start driver
+1> sybdrv:start([])
 
-> sybdrv:start([]).
-
-execute query with params 
-> sybdrv:execQueryWithArgs(p48testab,"select * FROM temp_gh WHERE val=?",["980"]).
-
-execute query w/o params 
-> sybdrv:execQuery(p48testab,"select * FROM temp_gh WHERE val='980'").
-
-call procedure(select)
-
-> sybdrv:execQuery(p48testab,"exec mydb..get_my_data").
-This method return first result set.
-
-call procedure(update)
-
-> sybdrv:execCallProc(p48testab,"exec mydb..get_my_data",[]).
-This method return status of sp.
+%%Execute query with params 
+2> sybdrv:execQueryWithArgs(testdb,"select * FROM temp_gh WHERE val=?",["980"]).
 
 
+%%Execute query with param date
+3> sybdrv:execQueryWithArgs(testdb,"select top 100 *  from mySuperTAble where createdate=?",[{datetime,{{2008,7,3},{8,0,0,0}}}]).
 
+%%Execute  query with non-ASCII params
+4> sybdrv:execQueryWithArgs(testdb,"select * from Oranization where Name=?",[binary:bin_to_list(unicode:characters_to_binary("Благотворительная организация"))]).
 
-[![Bitdeli Badge](https://d2weczhvl823v0.cloudfront.net/VanyaDNDZ/erlsybase/trend.png)](https://bitdeli.com/free "Bitdeli Badge")
+%%Execute  query w/o params
+5> sybdrv:execQuery(testdb,"select * FROM temp_gh WHERE val='980'").
 
+%%Call procedure(select)
+%%This method return first result set.
+6> sybdrv:execQuery(testdb,"exec mydb..get_my_data").
+
+%% Call procedure(update)
+%%  This method return status of sp.
+7> sybdrv:execCallProc(testdb,"exec mydb..get_my_data",[]).
+
+```
+Alternatives
+============
+* [jamdb_sybase](https://github.com/erlangbureau/jamdb_sybase)
+* [Erlang ODBC](http://www.erlang.org/doc/man/odbc.html)
+* [erlang-db-driver](https://github.com/denglf/erlang-db-driver)
+* [erldb-driver](https://github.com/RYTong/erldb-driver)
