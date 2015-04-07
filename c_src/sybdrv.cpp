@@ -22,6 +22,25 @@ static void gen_random(char *s, const int len) {
     s[len] = 0;
 }
 
+static ERL_NIF_TERM next_resultset_(ErlNifEnv* env,SybStatement *stmt){
+	CS_INT retcode;
+	ERL_NIF_TERM return_term;
+
+	retcode=stmt->next_resultset();
+    switch ((int)retcode) {
+    		case CS_END_RESULTS:
+    			return_term=enif_make_tuple2(env, sybdrv_atoms.ok, sybdrv_atoms.nomore_resultset);
+    			break;
+    		case CS_ROW_RESULT:
+    			return_term=enif_make_tuple2(env, sybdrv_atoms.ok, sybdrv_atoms.resultset);
+    	 		break;
+    		default:
+    			return_term=enif_make_tuple2(env, sybdrv_atoms.error, enif_make_string(env, "Can't get next resultset. Statement canceled",ERL_NIF_LATIN1));
+    			break;
+	}
+	return return_term;
+}
+
 static ERL_NIF_TERM connect(ErlNifEnv* env, int argc,
 		const ERL_NIF_TERM argv[]) {
 	SybConnection* conn = new SybConnection(env);
@@ -64,7 +83,7 @@ static ERL_NIF_TERM disconnect(ErlNifEnv* env, int argc,
 	if(sybdrv_con_handle->connection->close()){
 		return ret_nif(env,true,enif_make_string(env, "disconnect", ERL_NIF_LATIN1),sybdrv_con_handle,NULL);
 	}else{
-		return ret_nif(env,false,enif_make_string(env, "faile disconnect", ERL_NIF_LATIN1),sybdrv_con_handle,NULL);
+		return ret_nif(env,false,enif_make_string(env, "fail disconnect", ERL_NIF_LATIN1),sybdrv_con_handle,NULL);
 	}
 }
 
@@ -90,7 +109,7 @@ static ERL_NIF_TERM execute_batch(ErlNifEnv* env,int argc,const ERL_NIF_TERM arg
 }
 
 static ERL_NIF_TERM prepare_statement(ErlNifEnv* env,int argc,const ERL_NIF_TERM argv[]){
-	if(argc!=3){
+	if(argc!=2){
 		return enif_make_badarg(env);
 	}
 	
@@ -100,54 +119,169 @@ static ERL_NIF_TERM prepare_statement(ErlNifEnv* env,int argc,const ERL_NIF_TERM
 			(void**) &sybdrv_con_handle)) {
 		return enif_make_badarg(env);
 	}
-	
-	unsigned statement_id_len,statement_len;
 
-	if(!enif_get_list_length(env,argv[1],&statement_id_len)){
-		return enif_make_badarg(env);	
-	}
-	char* statement_id= (char*)malloc(statement_id_len+1);
-	if(!enif_get_string(env,argv[1],statement_id,statement_id_len+1,ERL_NIF_LATIN1)){
-		return enif_make_badarg(env);	
-	}
+	char * statement_id = (char*)malloc(10);
+
+    gen_random(statement_id,10);
+
+    unsigned int statement_len=0;
 	
-	if(!enif_get_list_length(env,argv[2],&statement_len)){
+	if(!enif_get_list_length(env,argv[1],&statement_len)){
+		enif_release_resource(sybdrv_con_handle);
 		return enif_make_badarg(env);	
 	}
 	char* statement= (char*)malloc(statement_len+1);
-	if(!enif_get_string(env,argv[2],statement,statement_len+1,ERL_NIF_LATIN1)){
+	if(!enif_get_string(env,argv[1],statement,statement_len+1,ERL_NIF_LATIN1)){
+		enif_release_resource(sybdrv_con_handle);
 		return enif_make_badarg(env);	
 	}
-
 	
 	SybStatement* stmt;
 	
-	stmt = sybdrv_con_handle->connection->create_statement(statement);
+	stmt = sybdrv_con_handle->connection->create_statement();
 	
 	if(!stmt->prepare_init(statement_id, statement)){
+		enif_release_resource(sybdrv_con_handle);
 		return ret_nif(env,false,enif_make_string(env, "faile prepare_init", ERL_NIF_LATIN1),sybdrv_con_handle,NULL);
 	}
+
 	sybdrv_stmt* sybdrv_statement_handle = (sybdrv_stmt*) enif_alloc_resource(
 			sybdrv_srsr, sizeof(sybdrv_stmt));
+
 	sybdrv_statement_handle->statement = stmt;
 	ERL_NIF_TERM stmt_rez = enif_make_resource(env, sybdrv_statement_handle);
 	enif_release_resource(sybdrv_statement_handle);
 	return enif_make_tuple2(env, sybdrv_atoms.ok, stmt_rez);
 }
 
-static ERL_NIF_TERM close_statement(ErlNifEnv* env,int argc,const ERL_NIF_TERM argv[]){
+static ERL_NIF_TERM bind_params(ErlNifEnv* env,int argc,const ERL_NIF_TERM argv[]){
+	ERL_NIF_TERM return_term =  sybdrv_atoms.ok;
+
+	if(argc!=2){
+		return enif_make_badarg(env);
+	}
+
+	sybdrv_stmt* sybdrv_statement_handle;
+    if (!enif_get_resource(env, argv[0], sybdrv_srsr,
+    (void**) &sybdrv_statement_handle)) {
+    	return enif_make_badarg(env);
+    }
+
+    if(!sybdrv_statement_handle->statement->set_params(argv[1])){
+    		enif_release_resource(sybdrv_statement_handle);
+    		return_term  = enif_make_tuple2(env, sybdrv_atoms.error,enif_make_string(env, "could not set params",ERL_NIF_LATIN1));
+    }else{
+    	ERL_NIF_TERM stmt_rez = enif_make_resource(env, sybdrv_statement_handle);
+    	enif_release_resource(sybdrv_statement_handle);
+    	return_term  = enif_make_tuple2(env, sybdrv_atoms.ok, stmt_rez);
+    }
+
+    return return_term;
+}
+
+static ERL_NIF_TERM execute2(ErlNifEnv* env,int argc,const ERL_NIF_TERM argv[]){
+	ERL_NIF_TERM return_term;
 	if(argc!=1){
 		return enif_make_badarg(env);
 	}
+
+	sybdrv_stmt* sybdrv_statement_handle;
+    if (!enif_get_resource(env, argv[0], sybdrv_srsr,
+        (void**) &sybdrv_statement_handle)) {
+        	return enif_make_badarg(env);
+    }
+
+    if(!sybdrv_statement_handle->statement->execute_prepared()){
+    	sybdrv_statement_handle->statement->prepare_release();
+    	return_term = enif_make_tuple2(env, sybdrv_atoms.error,enif_make_string(env, "Execute failed. Statement unuseable anymore",ERL_NIF_LATIN1));
+    }else{
+    	return_term = next_resultset_(env,sybdrv_statement_handle->statement);
+    }
+    enif_release_resource(sybdrv_statement_handle);
+	return return_term;
+}
+
+static ERL_NIF_TERM next_resultset(ErlNifEnv* env,int argc,const ERL_NIF_TERM argv[]){
+	ERL_NIF_TERM return_term;
+
+	if(argc!=1){
+		return enif_make_badarg(env);
+	}
+
+	sybdrv_stmt* sybdrv_statement_handle;
+    if (!enif_get_resource(env, argv[0], sybdrv_srsr,
+        (void**) &sybdrv_statement_handle)) {
+        	return enif_make_badarg(env);
+    }
+    return_term = next_resultset_(env,sybdrv_statement_handle->statement);
+    enif_release_resource(sybdrv_statement_handle);
+    return return_term;
+}
+
+static ERL_NIF_TERM fetchmany_(ErlNifEnv* env, SybStatement* stmt,int fetch_size){
+	ERL_NIF_TERM return_term = enif_make_tuple2(env, sybdrv_atoms.error,enif_make_string(env, "Failed fetch data. Statement unuseable anymore",ERL_NIF_LATIN1));
+
+	if (stmt->isRowsStayed()){
+		ERL_NIF_TERM result = stmt->fetchmany(fetch_size);
+        if(enif_is_list(env,result)){
+        	if (enif_is_empty_list(env,result)){
+        		return_term = enif_make_tuple2(env, sybdrv_atoms.ok,sybdrv_atoms.nomore_rows);
+        	}else{
+        		return_term  = enif_make_tuple2(env, sybdrv_atoms.ok,result);
+        	}
+        }
+	}else{
+		return_term = enif_make_tuple2(env, sybdrv_atoms.ok,sybdrv_atoms.nomore_rows);
+	}
+
+	return return_term;
+}
+
+static ERL_NIF_TERM fetchmany(ErlNifEnv* env,int argc,const ERL_NIF_TERM argv[]){
+	ERL_NIF_TERM return_term;
+
+    int fetch_size;
+
+    if(argc!=2){
+    	return enif_make_badarg(env);
+    }
+
+	if (!enif_get_int(env,argv[1],&fetch_size) || fetch_size<-1 || fetch_size==0){
+		return enif_make_badarg(env);
+	}
+
+    sybdrv_stmt* sybdrv_statement_handle;
+    if (!enif_get_resource(env, argv[0], sybdrv_srsr,
+    (void**) &sybdrv_statement_handle)) {
+    	return enif_make_badarg(env);
+    }
+
+	return_term=fetchmany_(env,sybdrv_statement_handle->statement,fetch_size);
+
+    enif_release_resource(sybdrv_statement_handle);
+    return return_term;
+}
+
+static ERL_NIF_TERM close_statement(ErlNifEnv* env,int argc,const ERL_NIF_TERM argv[]){
+	ERL_NIF_TERM return_state = sybdrv_atoms.ok;
+
+	if(argc!=1){
+		return enif_make_badarg(env);
+	}
+
 	sybdrv_stmt* sybdrv_statement_handle;
 	if (!enif_get_resource(env, argv[0], sybdrv_srsr,
 			(void**) &sybdrv_statement_handle)) {
 		return enif_make_badarg(env);
 	}
+
 	if(!sybdrv_statement_handle->statement->prepare_release()){
-		return sybdrv_atoms.error;
+		return_state = sybdrv_atoms.error;
 	}
-	return sybdrv_atoms.ok;
+
+	enif_release_resource(sybdrv_statement_handle);
+
+	return return_state;
 }
 
 static ERL_NIF_TERM execute(ErlNifEnv* env, int argc,
@@ -309,6 +443,9 @@ static int load_init(ErlNifEnv* env, void** priv_data, ERL_NIF_TERM load_info) {
 	sybdrv_atoms.datetime = enif_make_atom(env, "datetime");
 	sybdrv_atoms.number = enif_make_atom(env, "number");
 	sybdrv_atoms.unknown = enif_make_atom(env, "unknown");
+	sybdrv_atoms.nomore_resultset = enif_make_atom(env, "nomore_resultset");
+	sybdrv_atoms.resultset = enif_make_atom(env, "resultset");
+	sybdrv_atoms.nomore_rows = enif_make_atom(env, "nomore_rows");
 
 	return 0;
 }
@@ -319,10 +456,14 @@ static ErlNifFunc nif_funcs[] = {
 		{ "connect", 3, connect }, 
 		{ "execute", 3, execute },
 		{"disconnect",1,disconnect},
-		{"prepare_statement",3,prepare_statement},
+		{"prepare_statement",2,prepare_statement},
 		{"close_statement",1,close_statement},
 		{"execute_batch",2,execute_batch},
-		{"call_proc",3,call_proc}
+		{"call_proc",3,call_proc},
+		{"bind_params",2,bind_params},
+		{"execute2",1,execute2},
+		{"next_resultset",1,next_resultset},
+		{"fetchmany",2,fetchmany}
 	};
 
 

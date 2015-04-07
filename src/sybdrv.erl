@@ -7,7 +7,7 @@
 -export([start/1, start/2, stop/0, stop/1,init/1]).
 
 %% API
--export([execQuery/2, execQueryWithArgs/3,execCallProc/3]).
+-export([execQuery/2, execQueryWithArgs/3, execCallProc/3, exec/3]).
 
 %% ===================================================================
 %% Application callbacks
@@ -50,6 +50,13 @@ execQuery(PoolName, Sql) ->
 execQueryWithArgs(PoolName, Sql, Args) ->
   poolboy:transaction(PoolName, fun(Worker) ->
     gen_server:call(Worker, {args_query, Sql, Args})
+  end).
+
+exec(PoolName, Sql, Args) ->
+  poolboy:transaction(PoolName, fun(Worker) ->
+    {ok, Stmt} = gen_server:call(Worker, {prepare_sql, Sql}),
+    gen_server:call(Worker, {bind_params, Stmt, Args}),
+    gen_server:call(Worker, {fetchmany, 100})
   end).
 
 execCallProc(PoolName, Sql, Args) ->

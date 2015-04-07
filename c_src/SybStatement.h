@@ -36,6 +36,14 @@ class SybStatement {
             }
     } BATCH_COLUMN_DATA;
 
+
+    typedef struct statement_info{
+        CS_INT column_count;
+        COLUMN_DATA* columns;
+    } STATEMENT_INFO;
+
+
+
     typedef bool (SybStatement::*setup_callback)(CS_DATAFMT* dfmt, CS_VOID* data, CS_INT len);
     typedef bool (SybStatement::*decode_callback)(BATCH_COLUMN_DATA* column,int index,ERL_NIF_TERM data);
 
@@ -88,14 +96,18 @@ public:
      *  @retval false The routine failed.
      */
     bool execute_sql(ERL_NIF_TERM** result, const char* sql);
+
+    /*Execute prepared statement*/
+    bool execute_prepared();
+
     /** @brief Execute a language command, encode result to the buffer and
-     *      return success or failure.
-     *  @param result The address of a ERL_NIF_TERM variable. execute_sql
-     *      encode result to the buffer.
-     *  @return If successful.
-     *  @retval true The routine completed successfully.
-     *  @retval false The routine failed.
-     */
+    *      return success or failure.
+    *  @param result The address of a ERL_NIF_TERM variable. execute_sql
+    *      encode result to the buffer.
+    *  @return If successful.
+    *  @retval true The routine completed successfully.
+    *  @retval false The routine failed.
+    */
     int call_procedure();
     
     /** @brief Execute a language command, encode result to the buffer and
@@ -127,6 +139,22 @@ public:
      *  @retval false The routine failed.
      */
     bool prepare_init(const char* id, const char* sql);
+
+    bool isRowsStayed();
+
+    /*
+     *   fetch result
+     */
+
+    ERL_NIF_TERM fetchmany(CS_INT pack_size);
+
+    ERL_NIF_TERM fetchone();
+
+    ERL_NIF_TERM fetchall();
+
+    /*Get next resultset if exist*/
+
+    CS_RETCODE next_resultset();
 
     /** @brief Get the parameter type to set the parameter with the
      *      appropriate function.
@@ -588,6 +616,7 @@ private:
     CS_COMMAND *cmd_;
     CS_INT row_count_;
     static SysLogger* log;
+    STATEMENT_INFO* current_statement_info;
 
     /** data format of parameters in prepare statement */
     CS_DATAFMT *desc_dfmt_;
@@ -595,11 +624,14 @@ private:
 
     char id_[CS_MAX_CHAR];
     bool is_prepare_;
+    bool is_rows_stayed;
     bool executed_;
     ErlNifEnv* env_;
 
 
     void reset();
+
+    bool skipAllRows();
 
     CS_RETCODE handle_describe_result();
     CS_RETCODE handle_describe_result(CS_COMMAND *cmd);
@@ -607,7 +639,7 @@ private:
     CS_RETCODE handle_command_result();
     CS_RETCODE handle_command_result(CS_COMMAND *cmd);
 
-    
+    CS_RETCODE set_column_info();
 
     CS_RETCODE process_describe_reslut();
 

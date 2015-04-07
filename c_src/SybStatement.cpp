@@ -6,8 +6,8 @@
 SysLogger* SybStatement::log = NULL;
 
 SybStatement::SybStatement(CS_CONNECTION* conn, ErlNifEnv* env) :
-		conn_(conn), sql_(NULL), row_count_(0), desc_dfmt_(NULL), param_count_(
-				0), is_prepare_(false), executed_(false), env_(env) {
+		conn_(conn), sql_(NULL), row_count_(0),current_statement_info(NULL), desc_dfmt_(NULL), param_count_(
+				0), is_prepare_(false),is_rows_stayed(true), executed_(false), env_(env) {
 	id_[0] = '\0';
 	if (ct_cmd_alloc(conn_, &cmd_) != CS_SUCCEED) {
 		cmd_ = NULL;
@@ -18,8 +18,8 @@ SybStatement::SybStatement(CS_CONNECTION* conn, ErlNifEnv* env) :
 }
 
 SybStatement::SybStatement(CS_CONNECTION* conn, const char* sql, ErlNifEnv* env) :
-		conn_(conn), row_count_(0), desc_dfmt_(NULL), param_count_(0), is_prepare_(
-				false), executed_(false), env_(env) {
+		conn_(conn), row_count_(0),current_statement_info(NULL), desc_dfmt_(NULL), param_count_(0), is_prepare_(
+				false),is_rows_stayed(true), executed_(false), env_(env) {
 
 	int len = strlen(sql);
 	id_[0] = '\0';
@@ -48,6 +48,19 @@ SybStatement::~SybStatement() {
 		free(sql_);
 		sql_ = NULL;
 	}
+
+	if(current_statement_info){
+
+	for(int i=0;i<current_statement_info->column_count;i++){
+		free_column_data(current_statement_info->columns, i);
+	}
+	free(current_statement_info);
+	current_statement_info=NULL;
+	}
+}
+
+bool SybStatement::isRowsStayed(){
+	return is_rows_stayed;
 }
 
 bool SybStatement::execute_cmd() {
@@ -197,6 +210,30 @@ bool SybStatement::execute_sql(ERL_NIF_TERM** result) {
 	} else {
 		return execute_sql(result, sql_);
 	}
+}
+
+/**
+ * If this is a prepare statement then we will use ct_dynamic to execute it
+ * or use ct_command
+ */
+bool SybStatement::execute_prepared() {
+	SysLogger::error("execute_prepared is_prepare_:%d,executed_:%d",is_prepare_,executed_);
+	if (is_prepare_) {
+		if (!executed_) {
+			if (ct_dynamic(cmd_, CS_EXECUTE, id_, CS_NULLTERM, NULL,
+					CS_UNUSED) != CS_SUCCEED) {
+				SysLogger::error("execute_sql:ct_dynamic() failed");
+				return false;
+			}
+            executed_ = true;
+		}
+		if (ct_send(cmd_) != CS_SUCCEED) {
+        	SysLogger::error("execute_sql:ct_send() failed");
+            return false;
+        }
+        return CS_SUCCEED;
+	}
+	return false;
 }
 
 int SybStatement::get_param_count() {
@@ -439,6 +476,53 @@ CS_RETCODE SybStatement::handle_describe_result(CS_COMMAND *cmd) {
 	return CS_SUCCEED;
 }
 
+CS_RETCODE SybStatement::next_resultset(){
+	if(!is_prepare_ || !executed_){
+		return CS_FAIL;
+	}
+
+	skipAllRows();
+
+	CS_RETCODE retcode;
+	CS_INT restype;
+	row_count_ = 0;
+
+	/*Loop while Result Or Done*/
+	while ((retcode = ct_results(cmd_, &restype)) == CS_SUCCEED) {
+		switch ((int)restype) {
+		case CS_COMPUTE_RESULT:
+		case CS_CURSOR_RESULT:
+		case CS_PARAM_RESULT:
+		case CS_ROW_RESULT:
+			is_rows_stayed=true;
+			if(set_column_info()!= CS_SUCCEED){
+            		cancel_current();
+            		is_rows_stayed=false;
+            		return CS_FAIL;
+            }
+			return CS_ROW_RESULT;
+	 		break;
+		case CS_CMD_SUCCEED:
+			/*Called when statement fully completed*/
+			break;
+
+		case CS_CMD_DONE:
+			/*Called when this resultset is all fetched*/
+			break;
+
+		default:
+			break;
+		}
+	}
+
+	if ((int)retcode != (int)CS_END_RESULTS) {
+		cancel_current();
+		return CS_FAIL;
+	}
+
+	return CS_END_RESULTS;
+}
+
 CS_RETCODE SybStatement::handle_sql_result(ERL_NIF_TERM** result) {
 	CS_RETCODE retcode;
 	CS_INT restype;
@@ -455,11 +539,13 @@ CS_RETCODE SybStatement::handle_sql_result(ERL_NIF_TERM** result) {
 		case CS_CURSOR_RESULT:
 		case CS_PARAM_RESULT:
 		case CS_ROW_RESULT:
+			/*Called when is data for fetch*/
 			is_query = 1;
 			out = process_row_result();
 			*result = &out;
 	 		break;
 	 	case CS_STATUS_RESULT:
+	 		/*called when procedure executed*/
 	 		if (1!=is_query){
 	 			is_query = 1;
 	 			out = process_row_result();
@@ -471,13 +557,16 @@ CS_RETCODE SybStatement::handle_sql_result(ERL_NIF_TERM** result) {
 
 
 		case CS_CMD_SUCCEED:
+			/*Called when statement fully completed*/
 			break;
 
 		case CS_CMD_DONE:
+			/*Called when this resultset is all fetched*/
 			row_count_ = get_row_count();
 			break;
 
 		default:
+		SysLogger::debug("handle_sql_result:default");
 			/** Unexpected result type. */
 			query_code = CS_FAIL;
 			break;
@@ -563,59 +652,66 @@ CS_RETCODE SybStatement::encode_update_result(ERL_NIF_TERM* result,
 	return CS_SUCCEED;
 }
 
-ERL_NIF_TERM SybStatement::process_row_result() {
-	
-	/** Find out how many columns there are in this result set.*/
+CS_RETCODE SybStatement::set_column_info(){
 	CS_INT column_count = get_column_count();
-
-	/** Make sure we have at least one column. */
 	if (column_count <= 0) {
-		SysLogger::error("process_row_result: have no columns");
-		return cancel_current();
-	}
+    		SysLogger::error("set_column_info: have no columns");
+    		return CS_FAIL;
+    	}
+    if(!current_statement_info){
+    	current_statement_info = (STATEMENT_INFO*) malloc(sizeof(STATEMENT_INFO));
+    }
+    current_statement_info->column_count = column_count;
 
-	/** Allocate memory for the data element to process. */
-	COLUMN_DATA* columns = (COLUMN_DATA *)malloc(column_count
-            * sizeof (COLUMN_DATA));
-	if (columns == NULL) {
-		SysLogger::error("process_row_result: allocate COLUMN_DATA failed");
-		return cancel_current();
-	}
+    /** Allocate memory for the data element to process. */
+    	current_statement_info->columns = (COLUMN_DATA *)malloc(column_count
+                * sizeof (COLUMN_DATA));
+    if (current_statement_info->columns == NULL) {
+    	SysLogger::error("set_column_info: allocate COLUMN_DATA failed");
+    	return CS_FAIL;
+    }
 
-	for (CS_INT i = 0; i < column_count; ++i) {
-
+    for (CS_INT i = 0; i < column_count; ++i) {
 		/**
 		 * Get the column description.  ct_describe() fills the
 		 * datafmt parameter with a description of the column.
 		 */
-		CS_DATAFMT *dfmt = &columns[i].dfmt;
+		CS_DATAFMT *dfmt = &(current_statement_info->columns[i].dfmt);
 
 		memset((char*)dfmt, 0, sizeof(CS_DATAFMT));
 		if (ct_describe(cmd_, (i + 1), dfmt) != CS_SUCCEED) {
-			SysLogger::error("process_row_result: ct_describe failed");
-			free_column_data(columns, i);
-			cancel_current();
+			SysLogger::error("set_column_info: ct_describe failed");
+			free_column_data(current_statement_info->columns, i);
 			return CS_FAIL;
 		}
 
-		columns[i].value = alloc_column_value(dfmt);
-		if (columns[i].value == NULL) {
-			SysLogger::error("process_row_result: alloc_column_value() failed");
-			free_column_data(columns, i);
-			cancel_current();
+		current_statement_info->columns[i].value = alloc_column_value(dfmt);
+		if (current_statement_info->columns[i].value == NULL) {
+			SysLogger::error("set_column_info: alloc_column_value() failed");
+			free_column_data(current_statement_info->columns, i);
 			return CS_FAIL;
 		}
 
-		if (ct_bind(cmd_, i + 1, dfmt, (CS_VOID *) columns[i].value,
-				&columns[i].valuelen, &columns[i].indicator) != CS_SUCCEED) {
-			SysLogger::error("process_row_result: ct_bind() failed");
-			free_column_data(columns, i);
-			cancel_current();
+		if (ct_bind(cmd_, i + 1, dfmt, (CS_VOID *) current_statement_info->columns[i].value,
+				&(current_statement_info->columns[i].valuelen), &(current_statement_info->columns[i].indicator)) != CS_SUCCEED) {
+			SysLogger::error("set_column_info: ct_bind() failed");
+			free_column_data(current_statement_info->columns, i);
 			return CS_FAIL;
 		}
 	}
+
+	return CS_SUCCEED;
+}
+
+ERL_NIF_TERM SybStatement::process_row_result() {
+
+	if(set_column_info()!= CS_SUCCEED){
+		cancel_current();
+		is_rows_stayed=false;
+		return CS_FAIL;
+	}
 	
-	return encode_query_result(columns, column_count);
+	return fetchall();
 }
 
 int SybStatement::process_proc_result() {
@@ -715,6 +811,7 @@ bool SybStatement::set_param(CS_DATAFMT* dfmt, CS_VOID* data, CS_INT len) {
 
 	if (ct_param(cmd_, dfmt, (CS_VOID *) data, len, 0) != CS_SUCCEED) {
 		SysLogger::error("set_param: ct_param() failed");
+		executed_ = false;
 		return false;
 	}
 
@@ -826,54 +923,84 @@ bool SybStatement::set_params_batch(ERL_NIF_TERM list){
         return true;
     }
 
-ERL_NIF_TERM SybStatement::encode_query_result(COLUMN_DATA* columns, CS_INT column_count) {
-	CS_RETCODE retcode;
+ERL_NIF_TERM SybStatement::fetchone(){
+	return fetchmany(1);
+}
+
+ERL_NIF_TERM SybStatement::fetchall(){
+	return fetchmany(-1);
+}
+
+bool SybStatement::skipAllRows(){
+	CS_RETCODE retcode = CS_FAIL;
+    CS_INT rows_read;
+    while (((retcode = ct_fetch(cmd_, CS_UNUSED, CS_UNUSED, CS_UNUSED,&rows_read)) == CS_SUCCEED) ||
+    				(retcode == CS_ROW_FAIL)) {
+        	/* Just skip all of this*/
+        }
+    	switch ((int)retcode) {
+    	case CS_END_DATA:
+    		is_rows_stayed=false;
+    		break;
+    	case CS_SUCCEED:
+       		is_rows_stayed=true;
+       		break;
+    	case CS_FAIL:
+    		is_rows_stayed=false;
+    		return false;
+    		SysLogger::error("fetchmany: ct_fetch() failed");
+    		break;
+    	default:
+    		/** We got an unexpected return value. */
+    		is_rows_stayed=false;
+    		return false;
+    		break;
+    	}
+    	return true;
+}
+
+ERL_NIF_TERM SybStatement::fetchmany(CS_INT pack_size){
+	CS_RETCODE retcode = CS_FAIL;
 	CS_INT rows_read;
 	CS_INT row_count = 0;
-
 	ERL_NIF_TERM rows = enif_make_list(env_, 0);
+	while ((((int)row_count < (int)pack_size &&  (int)pack_size != -1) || ((int)pack_size == -1)) &&
+			(((retcode = ct_fetch(cmd_, CS_UNUSED, CS_UNUSED, CS_UNUSED,&rows_read)) == CS_SUCCEED) ||
+				(retcode == CS_ROW_FAIL))) {
+    		/** Increment our row count by the number of rows just fetched. */
+    		row_count = row_count + rows_read;
+    		SysLogger::error("fetchmany: fetched row_count=%d", row_count);
+    		/** Check if we hit a recoverable error. */
+    		if ((int)retcode == (int)CS_ROW_FAIL) {
+    			SysLogger::error("fetchmany: Error on row %d", row_count);
+    		} else {
+    			/**
+    			 * We have a row. Loop through the columns encode the
+    			 * column values.
+    			 */
+    			ERL_NIF_TERM* row = new ERL_NIF_TERM[current_statement_info->column_count];
 
-	/** Fetch the rows.  Loop while ct_fetch() returns CS_SUCCEED or
-	 * CS_ROW_FAIL
-	 */
-	while (((retcode = ct_fetch(cmd_, CS_UNUSED, CS_UNUSED, CS_UNUSED,
-			&rows_read)) == CS_SUCCEED) || (retcode == CS_ROW_FAIL)) {
+    			for (CS_INT i = 0; i < current_statement_info->column_count; ++i) {
+    				row[i]=encode_column_data(current_statement_info->columns+i);
+    			}
+    			rows = enif_make_list_cell(env_,  enif_make_list_from_array(env_,row,current_statement_info->column_count),rows);
+    		}
+    }
 
-		/** Increment our row count by the number of rows just fetched. */
-		row_count = row_count + rows_read;
-		/** Check if we hit a recoverable error. */
-		if ((int)retcode == (int)CS_ROW_FAIL) {
-			SysLogger::error("encode_query_result: Error on row %d", row_count);
-		} else {
-			
-			/**
-			 * We have a row. Loop through the columns encode the
-			 * column values.
-			 */
-			ERL_NIF_TERM* row = new ERL_NIF_TERM[column_count];
-
-			for (CS_INT i = 0; i < column_count; ++i) {
-				row[i]=encode_column_data(columns+i);
-			}
-			rows = enif_make_list_cell(env_,  enif_make_list_from_array(env_,row,column_count),rows);
-
-		}
-	}
-
-	
 	switch ((int)retcode) {
 	case CS_END_DATA:
-		retcode = CS_SUCCEED;
+		is_rows_stayed=false;
 		break;
-
+	case CS_SUCCEED:
+   		is_rows_stayed=true;
+   		break;
 	case CS_FAIL:
-		SysLogger::error("encode_query_result: ct_fetch() failed");
+		is_rows_stayed=false;
+		SysLogger::error("fetchmany: ct_fetch() failed");
 		break;
-
 	default:
 		/** We got an unexpected return value. */
-		SysLogger::error("encode_query_result: ct_fetch() returned an "
-				"expected retcode:%d", retcode);
+		is_rows_stayed=false;
 		break;
 	}
 
@@ -3545,11 +3672,16 @@ CS_VOID SybStatement::free_column_data(COLUMN_DATA *columns, CS_INT size) {
 
 CS_INT SybStatement::get_row_count() {
 	CS_INT row_count = 0;
-	if (ct_res_info(cmd_, CS_ROW_COUNT, &row_count, CS_UNUSED,
+	if (ct_res_info(cmd_, CS_ROW_COUNT, (CS_VOID *) &row_count, CS_UNUSED,
 			NULL) != CS_SUCCEED) {
 		return 0;
 	}
-	return row_count;
+	if (row_count!=-1) {
+		return 0;
+	}else{
+		return row_count;
+	}
+
 }
 
 CS_INT SybStatement::get_column_count() {

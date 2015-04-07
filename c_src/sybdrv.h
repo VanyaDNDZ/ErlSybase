@@ -26,6 +26,9 @@ static struct  {
 	ERL_NIF_TERM datetime;
 	ERL_NIF_TERM number;
 	ERL_NIF_TERM unknown;
+	ERL_NIF_TERM nomore_resultset;
+	ERL_NIF_TERM resultset;
+	ERL_NIF_TERM nomore_rows;
 } sybdrv_atoms;
 
 typedef struct sybdrv_con sybdrv_con;

@@ -24,6 +24,18 @@ handle_call({plain_sql, Sql}, _From, #state{conn=Conn}=State) ->
     {reply, sybdrv_nif:execute(Conn, binary:bin_to_list(unicode:characters_to_binary(Sql)), []), State};
 handle_call({args_query, Sql, Params}, _From, #state{conn=Conn}=State) ->
     {reply, sybdrv_nif:execute(Conn, binary:bin_to_list(unicode:characters_to_binary(Sql)), Params), State};
+handle_call({prepare_sql, Sql}, _From, #state{conn = Conn} = State) ->
+    {reply, sybdrv_nif:prepare_statement(Conn, binary:bin_to_list(unicode:characters_to_binary(Sql))), State};
+handle_call({bind_params, Stmt, Params}, _From, State) ->
+    {reply, sybdrv_nif:bind_params(Stmt, Params), State};
+handle_call({excute_statement, Stmt}, _From, State) ->
+    {reply, sybdrv_nif:execute2(Stmt), State};
+handle_call({next_resultset, Stmt}, _From, State) ->
+    {reply, sybdrv_nif:next_resultset(Stmt), State};
+handle_call({fetchmany, Stmt, Size}, _From, State) when is_integer(Size) ->
+    {reply, sybdrv_nif:fetchmany(Stmt, Size), State};
+handle_call({close_statement, Stmt}, _From, State) ->
+    {reply, sybdrv_nif:close_statement(Stmt), State};
 handle_call({call_proc_no_args, Sql, Params}, _From, #state{conn=Conn}=State) ->
     {reply, sybdrv_nif:call_proc(Conn, Sql, Params), State};
 handle_call(_Request, _From, State) ->

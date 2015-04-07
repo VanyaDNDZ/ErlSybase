@@ -1,5 +1,6 @@
 -module (sybdrv_nif).
--export ([init/0,connect/3,execute_batch/2,disconnect/1,execute/3,execute_cmd/2,call_proc/3,prepare_statement/3,close_statement/1]).
+-export ([init/0,connect/3,execute_batch/2,disconnect/1,execute/3,execute_cmd/2,call_proc/3,prepare_statement/2,
+    close_statement/1,bind_params/2,execute2/1,next_resultset/1,fetchmany/2]).
 
 
 init()->
@@ -24,10 +25,16 @@ disconnect(_Server) ->
 -spec execute(binary(),list(),list())->{ok,list()}|{error,list()}.
 execute(_Conn, _Sql,_Param)->
     erlang:nif_error(nif_library_not_loaded).
-
-prepare_statement(_Conn, _Id,_Sql)->
+bind_params(_Stmt,_Param) ->
     erlang:nif_error(nif_library_not_loaded).
-
+prepare_statement(_Conn,_Sql)->
+    erlang:nif_error(nif_library_not_loaded).
+execute2(_Stmt)->
+    erlang:nif_error(nif_library_not_loaded).
+next_resultset(_Stmt)->
+    erlang:nif_error(nif_library_not_loaded).
+fetchmany(_Stmt,_Size)->
+    erlang:nif_error(nif_library_not_loaded).
 close_statement(_Stmt)->
     erlang:nif_error(nif_library_not_loaded).
 
